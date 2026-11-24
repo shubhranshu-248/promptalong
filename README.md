@@ -15,8 +15,9 @@ Student teams, hackathon teams and study groups usually work on separate machine
 accounts, copy-pasting prompts and answers back and forth. PromptAlong gives them one shared
 prompt, one shared answer and one shared history.
 
-> Status: early development. The landing page and the project tooling are in place; rooms,
-> the shared editor and model streaming are being built next.
+> Status: early development. Rooms and live co-writing work (shared prompt, live cursors, offline
+> editing that syncs back). Sending the prompt to a model and streaming the answer come next.
+> Rooms are not private yet: anyone with a room code can join it.
 
 ## What makes it different
 
@@ -52,21 +53,26 @@ Requirements: Node 22+ and pnpm (the version is pinned in `package.json`; with C
 
 ```bash
 pnpm install
-pnpm dev                 # http://localhost:5173
+pnpm relay               # terminal 1: local sync relay on ws://localhost:8787
+pnpm dev                 # terminal 2: http://localhost:5173
 ```
+
+Open the same room link in two browsers (or a normal and a private window) to write together.
+Without the relay the app still works, but each browser only sees its own copy.
 
 Useful scripts:
 
-| Command                                                 | What it does                                        |
-| ------------------------------------------------------- | --------------------------------------------------- |
-| `pnpm test`                                             | unit tests (Vitest) in every package                |
-| `pnpm lint` / `pnpm typecheck`                          | ESLint / TypeScript                                 |
-| `pnpm build`                                            | production build of the app                         |
-| `pnpm exec playwright install chromium` then `pnpm e2e` | smoke and accessibility tests against the built app |
-| `pnpm check`                                            | every CI gate except E2E                            |
+| Command                                                 | What it does                                                                               |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `pnpm test`                                             | unit tests (Vitest) in every package                                                       |
+| `pnpm lint` / `pnpm typecheck`                          | ESLint / TypeScript                                                                        |
+| `pnpm build`                                            | production build of the app                                                                |
+| `pnpm exec playwright install chromium` then `pnpm e2e` | end-to-end tests: 2-9 browsers writing together, offline/reconnect, latency, accessibility |
+| `pnpm check`                                            | every CI gate except E2E                                                                   |
 
-Environment variables are listed in [`.env.example`](.env.example). Nothing is needed to run the
-landing page.
+Environment variables are listed in [`.env.example`](.env.example). Locally nothing is needed: rooms
+sync through the relay. With `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` set, rooms sync through
+Supabase Realtime instead.
 
 ## Privacy
 

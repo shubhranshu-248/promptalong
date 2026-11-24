@@ -37,16 +37,43 @@ e2e/                Playwright tests
 
 ## Realtime
 
-- One Yjs document per room holds the prompt (TipTap fragment), turns, branches, context items,
-  room settings and the people list. No secrets are ever stored in it.
-- Updates travel over a private Supabase Realtime broadcast channel `room:{id}`, coalesced every
-  50 ms while typing (100 ms in rooms with more than three people) to stay inside the free
-  message limits. Joining peers sync with a state-vector exchange; if nobody answers, the latest
-  snapshot is loaded from Postgres.
-- Cursors and selections use y-protocols awareness on the same channel (at most one update per
-  100 ms per person). Supabase Presence only drives the coarse "who is online" list.
-- Edits are stored locally with y-indexeddb, so typing continues offline and merges on reconnect.
-  A peer-to-peer fallback (y-webrtc, signalled over the same channel) is evaluated as a spike.
+- One Yjs document per room holds the prompt (a ProseMirror fragment), the room settings and the
+  people list; later it also holds turns, branches and context items. No secrets are ever stored in it.
+- `packages/core/src/sync` keeps the document and awareness in sync over a small broadcast
+  `Transport` interface:
+  - joining or reconnecting peers exchange state vectors in both directions, so edits made offline
+    are merged in, never overwritten;
+  - local edits are batched every 50 ms (100 ms with more than three people) into one update with a
+    per-sender sequence number; broadcast delivery is at-most-once, so a gap in a sender's sequence
+    triggers a targeted re-sync, and a light re-sync runs every 20 s (nobody answers when nothing
+    is missing);
+  - cursors, selections, names and "typing / selecting" come from y-protocols awareness, at most
+    one message per 100 ms per person. The people list is built from awareness too.
+- Transports (`apps/web/src/realtime`):
+  - **Supabase Realtime broadcast** on channel `room:{code}` (supabase-js is lazy-loaded);
+  - a **local relay** (`scripts/dev-relay.mjs`) with the same broadcast behaviour, used in
+    development and by the end-to-end tests, so CI needs no hosted service;
+  - **this device only** when neither is configured.
+- Every room is also stored in the browser with y-indexeddb, so typing continues offline and syncs
+  when the connection returns. The editor appears once the local copy has loaded and the first sync
+  has answered, so nobody starts typing into an outdated document.
+- Colour slots (1-8) are handed out in join order. Each browser picks only its own slot from what it
+  sees, with one shared tie-break (earlier visit first, then id), so simultaneous joins never keep the
+  same colour. A ninth person sees "room full".
+- Until the persistence phase, a room is its code: name and "who can Send" live in the document,
+  written once by the creator, and the channel is public (the code works as the invite). That phase
+  moves rooms to Postgres with private, member-only channels.
+
+### Editor binding
+
+- TipTap (ProseMirror) bound to Yjs with upstream `y-prosemirror` through a small extension
+  (`apps/web/src/room/yjs-collaboration.ts`): shared content, remote carets with name labels, and an
+  undo that only reverts the current person's edits.
+- A room starts with one paragraph that already holds one shared text node. If every editor created
+  its own first text node, people typing their first letters at the same moment could see letters
+  duplicated when the editor merges neighbouring text nodes.
+- The editor component never re-renders while someone is typing (React re-renders would call
+  `setOptions` in the middle of ProseMirror handling a keystroke).
 
 ## Models and keys
 
@@ -103,7 +130,10 @@ anyone sharing a key.
 ## Quality gates
 
 Every pull request runs: no-trace check, licence allow-list, ESLint, Prettier, TypeScript, Vitest,
-production build, first-load JS budget, Playwright smoke tests and axe accessibility checks.
+production build, first-load JS budget, and Playwright end-to-end tests over the local relay: two to
+four people typing at once (no lost or duplicated characters), a network cut and reconnect, reload
+and late join, per-person undo, keystroke-to-other-screen latency, the 8-person limit, and axe
+accessibility checks.
 
 Performance budgets:
 

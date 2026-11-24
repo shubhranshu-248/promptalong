@@ -1,0 +1,23 @@
+export {
+  FIELD,
+  DEFAULT_ROOM_NAME,
+  ROOM_NAME_MAX,
+  cleanRoomName,
+  initRoom,
+  peopleMap,
+  promptFragment,
+  promptText,
+  readSettings,
+  upsertPerson,
+  type PersonRecord,
+  type RoomSettings,
+  type SendPolicy,
+} from './doc';
+export {
+  MAX_PEOPLE,
+  SLOT_COUNT,
+  chooseSlot,
+  hasPriority,
+  isOverCapacity,
+  type PresentPerson,
+} from './slots';

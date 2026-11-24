@@ -30,9 +30,11 @@ describe('landing page', () => {
 });
 
 describe('routes', () => {
-  it('room route accepts a valid code', async () => {
-    renderAt('/r/k7qm2x');
-    expect(await screen.findByRole('heading', { name: 'Room K7Q-M2X' })).toBeInTheDocument();
+  it('room link asks for a name first', async () => {
+    localStorage.clear();
+    renderAt('/r/K7QM2X');
+    expect(await screen.findByRole('heading', { name: 'Join the room' })).toBeInTheDocument();
+    expect(screen.getByText('Room K7Q-M2X')).toBeInTheDocument();
   });
 
   it('room route explains a bad code', async () => {

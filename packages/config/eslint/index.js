@@ -13,6 +13,7 @@ export function createConfig({ tsconfigRootDir }) {
     {
       ignores: [
         '**/dist/**',
+        '**/dist-e2e/**',
         '**/coverage/**',
         '**/node_modules/**',
         'e2e/test-results/**',

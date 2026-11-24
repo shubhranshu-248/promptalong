@@ -1,7 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
 
-const PAGES = ['/', '/new', '/demo', '/r/K7QM2X'];
+const PAGES = ['/', '/new', '/demo', '/r/K7QM2X', '/r/K7QM2X?named'];
 const VIEWPORTS = [
   { name: 'desktop', width: 1440, height: 900 },
   { name: 'mobile', width: 390, height: 844 },
@@ -13,7 +13,13 @@ for (const scheme of ['light', 'dark'] as const) {
       test(`axe: ${path} ${vp.name} ${scheme}`, async ({ page }) => {
         await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' });
         await page.setViewportSize({ width: vp.width, height: vp.height });
-        await page.goto(path);
+        if (path.endsWith('?named')) {
+          // the room itself (name already chosen), not the join gate
+          await page.addInitScript(() => {
+            window.localStorage.setItem('promptalong:name', 'Aarav');
+          });
+        }
+        await page.goto(path.replace('?named', ''));
         await expect(page.locator('h1')).toBeVisible();
         const results = await new AxeBuilder({ page })
           .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])

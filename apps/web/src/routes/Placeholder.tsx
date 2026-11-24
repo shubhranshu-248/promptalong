@@ -1,7 +1,6 @@
 import type { ReactNode } from 'react';
 import { buttonClass } from '@promptalong/ui';
-import { formatRoomCode, normalizeRoomCode } from '@promptalong/core';
-import { Link, useParams } from 'react-router';
+import { Link } from 'react-router';
 import { SiteFooter } from '../components/SiteFooter';
 import { SiteNav } from '../components/SiteNav';
 
@@ -18,27 +17,6 @@ function ComingSoon({ title, children }: { title: string; children: ReactNode })
       </main>
       <SiteFooter />
     </>
-  );
-}
-
-export function NewRoom() {
-  return (
-    <ComingSoon title="Start or join a room">
-      Rooms are being built right now. Soon you will create a room here, or type a 6-letter code to
-      join one.
-    </ComingSoon>
-  );
-}
-
-export function Room() {
-  const { code = '' } = useParams();
-  const valid = normalizeRoomCode(code);
-  return (
-    <ComingSoon title={valid ? `Room ${formatRoomCode(valid)}` : 'That code does not look right'}>
-      {valid
-        ? 'Shared rooms open here soon.'
-        : 'Room codes are 6 letters and numbers, like K7Q-M2X.'}
-    </ComingSoon>
   );
 }
 
