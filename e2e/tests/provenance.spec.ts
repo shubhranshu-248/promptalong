@@ -10,11 +10,11 @@ import {
   type Person,
 } from './helpers';
 
+/** The participant id lives in localStorage in every realtime mode (the session hook is relay-only). */
 async function pidOf(p: Person): Promise<string> {
-  return p.page.evaluate(() => {
-    const w = window as unknown as { __promptalong?: { session: { pid: string } } };
-    return w.__promptalong?.session.pid ?? '';
-  });
+  const pid = await p.page.evaluate(() => localStorage.getItem('promptalong:pid') ?? '');
+  expect(pid).not.toBe('');
+  return pid;
 }
 
 /** Sends and waits until a NEW answer is done for everyone (not the previous one). */
