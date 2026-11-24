@@ -186,19 +186,29 @@ export function turnsOnPath(doc: Y.Doc, branchId: string): TurnView[] {
   return out.reverse();
 }
 
-/** What the model receives before the new prompt: earlier prompts and answers with text. */
+/** The finished turns the model receives before the new prompt, oldest first. */
+export function historyEntries(
+  doc: Y.Doc,
+  branchId: string = MAIN_BRANCH,
+): { turnId: string; prompt: string; answer: string }[] {
+  const out: { turnId: string; prompt: string; answer: string }[] = [];
+  for (const t of turnsOnPath(doc, branchId)) {
+    if (t.status === 'streaming' || t.status === 'failed') continue;
+    if (t.answer.trim().length === 0) continue;
+    out.push({ turnId: t.id, prompt: t.prompt.text, answer: t.answer });
+  }
+  return out;
+}
+
+/** The same history as chat messages: earlier prompts and answers with text. */
 export function historyMessages(
   doc: Y.Doc,
   branchId: string = MAIN_BRANCH,
 ): { role: 'user' | 'assistant'; content: string }[] {
-  const out: { role: 'user' | 'assistant'; content: string }[] = [];
-  for (const t of turnsOnPath(doc, branchId)) {
-    if (t.status === 'streaming' || t.status === 'failed') continue;
-    if (t.answer.trim().length === 0) continue;
-    out.push({ role: 'user', content: t.prompt.text });
-    out.push({ role: 'assistant', content: t.answer });
-  }
-  return out;
+  return historyEntries(doc, branchId).flatMap((t) => [
+    { role: 'user' as const, content: t.prompt },
+    { role: 'assistant' as const, content: t.answer },
+  ]);
 }
 
 /**

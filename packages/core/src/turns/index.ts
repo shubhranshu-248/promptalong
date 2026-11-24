@@ -8,6 +8,7 @@ export {
   sha256Hex,
   turnsMap,
   type NewTurn,
+  type TurnContextRecord,
   type TurnError,
   type TurnProvider,
   type TurnStatus,

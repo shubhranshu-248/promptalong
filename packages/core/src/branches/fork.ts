@@ -1,12 +1,22 @@
 import * as Y from 'yjs';
+import {
+  CONTEXT_MAX_ITEMS,
+  addContextItem,
+  listContextWithText,
+  readSystemLine,
+  setContextIncluded,
+  setSystemLine,
+  type ContextKind,
+} from '../context/context';
 import { MAIN_BRANCH } from '../room/doc';
 import { turnsMap, type TurnView } from '../turns/turns';
 import { turnsOnPath } from './branches';
 
 /**
- * Fork room (ADR-004): a new room gets the turns along the chosen path. Author ids and names are
- * kept as a frozen list marked with the room they came from. Model keys are never part of a room,
- * so they cannot be copied.
+ * Fork room (ADR-004): a new room gets the turns along the chosen path, the room's context items
+ * (included or not, as they are now) and its room line. Author ids and names are kept as a frozen
+ * list marked with the room they came from. Model keys are never part of a room, so they cannot be
+ * copied.
  */
 export const AUTHORS_FIELD = 'authors';
 
@@ -16,10 +26,23 @@ export interface FrozenAuthor {
   from: string;
 }
 
+export interface ForkContextItem {
+  id: string;
+  ownerUid: string;
+  kind: ContextKind;
+  title: string;
+  text: string;
+  included: boolean;
+  toggledBy: string | null;
+  createdAt: number;
+}
+
 export interface ForkPayload {
   fromCode: string;
   turns: TurnView[];
   authors: Record<string, FrozenAuthor>;
+  context?: ForkContextItem[];
+  systemLine?: string;
 }
 
 export function authorsMap(doc: Y.Doc): Y.Map<FrozenAuthor> {
@@ -50,8 +73,23 @@ export function forkPayload(
     add(t.sentBy);
     for (const s of t.prompt.spans) add(s.uid);
     if (t.stoppedBy) add(t.stoppedBy);
+    for (const c of t.context) add(c.ownerUid);
   }
-  return { fromCode: input.fromCode, turns, authors };
+  const context: ForkContextItem[] = listContextWithText(doc).map((item) => ({
+    id: item.id,
+    ownerUid: item.ownerUid,
+    kind: item.kind,
+    title: item.title,
+    text: item.text,
+    included: item.included,
+    toggledBy: item.toggledBy,
+    createdAt: item.createdAt,
+  }));
+  for (const item of context) {
+    add(item.ownerUid);
+    if (item.toggledBy) add(item.toggledBy);
+  }
+  return { fromCode: input.fromCode, turns, authors, context, systemLine: readSystemLine(doc) };
 }
 
 /** Writes a fork's turns into a new room's document as its main history. */
@@ -68,6 +106,15 @@ export function applyFork(doc: Y.Doc, payload: ForkPayload): void {
       map.set('prompt', { text: t.prompt.text, spans: t.prompt.spans.map((s) => ({ ...s })) });
       map.set('provider', { ...t.provider });
       map.set('requestHash', t.requestHash);
+      // (older payloads have no context fields)
+      const records = (t as Partial<TurnView>).context;
+      if (Array.isArray(records) && records.length > 0) {
+        map.set(
+          'context',
+          records.slice(0, CONTEXT_MAX_ITEMS).map((c) => ({ ...c })),
+        );
+      }
+      if (typeof t.systemLine === 'string' && t.systemLine) map.set('systemLine', t.systemLine);
       // a stream cannot continue in another room
       map.set('status', t.status === 'streaming' ? 'interrupted' : t.status);
       if (t.status === 'streaming') map.set('interruptedReason', 'lost');
@@ -81,8 +128,32 @@ export function applyFork(doc: Y.Doc, payload: ForkPayload): void {
       turnsMap(doc).set(t.id, map);
       parent = t.id;
     }
-    const authors = authorsMap(doc);
     // the payload arrives through history.state: check each field at runtime
+    const items: unknown[] = Array.isArray(payload.context) ? payload.context : [];
+    for (const raw of items.slice(0, CONTEXT_MAX_ITEMS)) {
+      const c = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<string, unknown>;
+      if (typeof c.id !== 'string' || typeof c.text !== 'string') continue;
+      const added = addContextItem(doc, {
+        id: c.id.slice(0, 64),
+        ownerUid: typeof c.ownerUid === 'string' ? c.ownerUid.slice(0, 64) : '',
+        kind: c.kind === 'snippet' || c.kind === 'file' ? c.kind : 'note',
+        title: typeof c.title === 'string' ? c.title : '',
+        text: c.text,
+        createdAt: typeof c.createdAt === 'number' ? c.createdAt : 0,
+      });
+      if (added.ok && c.included === false) {
+        setContextIncluded(
+          doc,
+          added.item.id,
+          false,
+          typeof c.toggledBy === 'string' ? c.toggledBy.slice(0, 64) : '',
+        );
+      }
+    }
+    if (typeof payload.systemLine === 'string' && payload.systemLine) {
+      setSystemLine(doc, payload.systemLine, '');
+    }
+    const authors = authorsMap(doc);
     for (const [pid, raw] of Object.entries(payload.authors as Record<string, unknown>).slice(
       0,
       200,

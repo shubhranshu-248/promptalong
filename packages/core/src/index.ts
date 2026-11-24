@@ -11,5 +11,6 @@ export * from './room/index';
 export * from './sync/index';
 export * from './turns/index';
 export * from './branches/index';
+export * from './context/index';
 export * from './provenance/index';
 export * from './text/index';

@@ -23,6 +23,21 @@ export interface TurnError {
   status?: number;
 }
 
+/** One context item as it was sent with a turn (ADR-004): frozen, the live item may change later. */
+export interface TurnContextRecord {
+  itemId: string;
+  title: string;
+  ownerUid: string;
+  ownerName: string;
+  kind: 'note' | 'snippet' | 'file';
+  bytes: number;
+  /** tokens of the block as sent ("about" unless `exact`) */
+  tokens: number;
+  exact: boolean;
+  /** SHA-256 of the item's text ('' until it has been computed) */
+  hash: string;
+}
+
 export interface TurnView {
   id: string;
   branchId: string;
@@ -33,6 +48,10 @@ export interface TurnView {
   prompt: { text: string; spans: { from: number; to: number; uid: string }[] };
   provider: TurnProvider;
   requestHash: string;
+  /** the context items that were part of the request, in the order sent */
+  context: TurnContextRecord[];
+  /** the room line that was sent ('' = none) */
+  systemLine: string;
   status: TurnStatus;
   answer: string;
   usage?: { input: number; output: number };
@@ -57,6 +76,34 @@ function readSpans(value: unknown): { from: number; to: number; uid: string }[] 
       continue;
     if (v.to <= v.from || v.from < 0) continue;
     out.push({ from: v.from, to: v.to, uid: v.uid.slice(0, 64) });
+  }
+  return out;
+}
+
+const CONTEXT_KINDS = new Set<string>(['note', 'snippet', 'file']);
+
+/** Context records from the network: well-formed ones only, at most 20. */
+function readContext(value: unknown): TurnContextRecord[] {
+  if (!Array.isArray(value)) return [];
+  const out: TurnContextRecord[] = [];
+  for (const r of value.slice(0, 20) as unknown[]) {
+    if (typeof r !== 'object' || r === null) continue;
+    const v = r as Record<string, unknown>;
+    if (typeof v.itemId !== 'string' || typeof v.title !== 'string') continue;
+    out.push({
+      itemId: v.itemId.slice(0, 64),
+      title: v.title.slice(0, 80),
+      ownerUid: typeof v.ownerUid === 'string' ? v.ownerUid.slice(0, 64) : '',
+      ownerName: typeof v.ownerName === 'string' ? v.ownerName.slice(0, 24) : '',
+      kind:
+        typeof v.kind === 'string' && CONTEXT_KINDS.has(v.kind)
+          ? (v.kind as TurnContextRecord['kind'])
+          : 'note',
+      bytes: typeof v.bytes === 'number' && v.bytes >= 0 ? v.bytes : 0,
+      tokens: typeof v.tokens === 'number' && v.tokens >= 0 ? Math.round(v.tokens) : 0,
+      exact: v.exact === true,
+      hash: typeof v.hash === 'string' && /^[0-9a-f]{64}$/u.test(v.hash) ? v.hash : '',
+    });
   }
   return out;
 }
@@ -102,6 +149,8 @@ export function readTurn(id: string, turn: Y.Map<unknown>): TurnView | null {
         : {}),
     },
     requestHash: str(turn.get('requestHash'), 64) ?? '',
+    context: readContext(turn.get('context')),
+    systemLine: str(turn.get('systemLine'), 2000) ?? '',
     status: status as TurnStatus,
     answer: answerText(turn)?.toJSON() ?? '',
   };
@@ -151,6 +200,8 @@ export interface NewTurn {
   spans: { from: number; to: number; uid: string }[];
   provider: TurnProvider;
   requestHash: string;
+  context?: TurnContextRecord[];
+  systemLine?: string;
 }
 
 /** Writes a new streaming turn. Returns its answer text. */
@@ -165,6 +216,13 @@ export function addTurn(doc: Y.Doc, turn: NewTurn): Y.Text {
   map.set('prompt', { text: turn.promptText, spans: turn.spans.map((x) => ({ ...x })) });
   map.set('provider', { ...turn.provider });
   map.set('requestHash', turn.requestHash);
+  if (turn.context && turn.context.length > 0) {
+    map.set(
+      'context',
+      turn.context.map((c) => ({ ...c })),
+    );
+  }
+  if (turn.systemLine) map.set('systemLine', turn.systemLine);
   map.set('status', 'streaming');
   map.set('answer', answer);
   turnsMap(doc).set(turn.id, map);

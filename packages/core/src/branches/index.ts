@@ -8,6 +8,7 @@ export {
   cleanBranchName,
   createBranch,
   getBranch,
+  historyEntries,
   historyMessages,
   listBranches,
   listMergeEvents,
@@ -32,6 +33,7 @@ export {
   authorsMap,
   forkPayload,
   readAuthors,
+  type ForkContextItem,
   type ForkPayload,
   type FrozenAuthor,
 } from './fork';
