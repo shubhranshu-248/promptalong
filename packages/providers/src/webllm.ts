@@ -15,6 +15,8 @@ export interface WebLlmEngine {
     };
   };
   interruptGenerate(): void;
+  /** the loaded model's own tokenizer (no chat template applied) */
+  tokenize?(input: string): Promise<ArrayLike<number>>;
 }
 
 export interface LoadProgress {
@@ -37,6 +39,7 @@ export class WebLlmProvider implements Provider {
   readonly kind = 'webllm' as const;
   private readonly loader: WebLlmLoader;
   private engine: { model: string; engine: Promise<WebLlmEngine> } | null = null;
+  private started: { model: string; engine: WebLlmEngine } | null = null;
   private progressListeners = new Set<(p: LoadProgress) => void>();
 
   constructor(loader: WebLlmLoader) {
@@ -86,7 +89,31 @@ export class WebLlmProvider implements Provider {
         );
       });
     this.engine = { model, engine };
+    void engine.then(
+      (ready) => {
+        if (this.engine?.engine === engine) this.started = { model, engine: ready };
+      },
+      () => undefined,
+    );
     return engine;
+  }
+
+  /**
+   * Token counts from the model's own tokenizer. Null while the model is not started in this tab:
+   * counting never starts a download.
+   */
+  async countTokens(model: string, texts: readonly string[]): Promise<number[] | null> {
+    const started = this.started;
+    if (started?.model !== model || this.engine?.model !== model) return null;
+    const tokenize = started.engine.tokenize?.bind(started.engine);
+    if (!tokenize) return null;
+    try {
+      const out: number[] = [];
+      for (const text of texts) out.push(text.length === 0 ? 0 : (await tokenize(text)).length);
+      return out;
+    } catch {
+      return null;
+    }
   }
 
   buildRequestBody(req: ChatRequest): string {

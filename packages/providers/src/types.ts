@@ -10,6 +10,8 @@ export interface ModelInfo {
   label: string;
   contextWindow: number;
   tokenizer: 'exact' | 'approx';
+  /** the public encoding that counts this model's tokens exactly (hosted models only) */
+  encoding?: 'o200k_base';
   free?: boolean;
   /** GPU memory the in-browser model needs, in MB */
   sizeMb?: number;

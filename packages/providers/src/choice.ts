@@ -1,5 +1,5 @@
 import { CATALOG, DEFAULT_MODEL, findEndpoint } from './catalog/index';
-import type { ProviderKind, RoomModelChoice } from './types';
+import type { ModelInfo, ProviderKind, RoomModelChoice } from './types';
 
 const KINDS = new Set<ProviderKind>(['mock', 'byok', 'webllm', 'ollama']);
 
@@ -41,4 +41,30 @@ export function modelLabel(choice: RoomModelChoice, short = false): string {
     case 'ollama':
       return short ? 'Ollama' : `Ollama · ${choice.model}`;
   }
+}
+
+/** How a model's tokens can be counted before sending (ADR-005). */
+export interface ModelLimits {
+  contextWindow: number;
+  /**
+   * 'encoding': a public encoding counts it exactly; 'engine': the in-browser model counts it
+   * exactly once it is started; 'estimate': no public tokenizer, counts are "about".
+   */
+  counting: 'encoding' | 'engine' | 'estimate';
+  encoding?: NonNullable<ModelInfo['encoding']>;
+}
+
+export const DEFAULT_CONTEXT_WINDOW = 8192;
+
+/** The context window and token counting of the room's model. Unknown models get 8,192. */
+export function modelLimits(choice: RoomModelChoice): ModelLimits {
+  const models =
+    choice.kind === 'byok' ? findEndpoint(choice.endpoint)?.models : CATALOG[choice.kind];
+  const model = models?.find((m) => m.id === choice.model);
+  const contextWindow = model?.contextWindow ?? DEFAULT_CONTEXT_WINDOW;
+  if (choice.kind === 'webllm') return { contextWindow, counting: 'engine' };
+  if (model?.tokenizer === 'exact' && model.encoding) {
+    return { contextWindow, counting: 'encoding', encoding: model.encoding };
+  }
+  return { contextWindow, counting: 'estimate' };
 }
