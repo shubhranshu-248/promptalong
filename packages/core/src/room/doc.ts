@@ -119,3 +119,47 @@ function xmlText(node: Y.XmlElement | Y.XmlText): string {
     )
     .join('');
 }
+
+/**
+ * Empties the shared prompt after Send. The first paragraph and its one text node are kept (only
+ * their text is deleted), so letters someone is typing at this moment are never lost and the next
+ * prompt starts from the same shared text node (see initRoom).
+ */
+export function clearPrompt(doc: Y.Doc): void {
+  const prompt = promptFragment(doc);
+  doc.transact(() => {
+    const first = prompt.get(0);
+    if (first instanceof Y.XmlElement && first.nodeName === 'paragraph') {
+      if (prompt.length > 1) prompt.delete(1, prompt.length - 1);
+      const text = first.get(0);
+      if (first.length > 1) first.delete(1, first.length - 1);
+      if (text instanceof Y.XmlText) {
+        if (text.length > 0) text.delete(0, text.length);
+      } else {
+        if (first.length > 0) first.delete(0, first.length);
+        first.insert(0, [new Y.XmlText()]);
+      }
+    } else {
+      if (prompt.length > 0) prompt.delete(0, prompt.length);
+      const paragraph = new Y.XmlElement('paragraph');
+      paragraph.insert(0, [new Y.XmlText()]);
+      prompt.insert(0, [paragraph]);
+    }
+  });
+}
+
+/** The room's model choice as stored (validated by the providers package when read). */
+export function readRoomModel(doc: Y.Doc): unknown {
+  return settingsMap(doc).get('model');
+}
+
+/** Sets the room's model: kind, model, endpoint and who picked it. Never a key. */
+export function setRoomModel(
+  doc: Y.Doc,
+  choice: { kind: string; model: string; endpoint?: string; setBy?: string },
+): void {
+  const clean: Record<string, string> = { kind: choice.kind, model: choice.model };
+  if (choice.endpoint) clean.endpoint = choice.endpoint;
+  if (choice.setBy) clean.setBy = choice.setBy;
+  settingsMap(doc).set('model', clean);
+}
