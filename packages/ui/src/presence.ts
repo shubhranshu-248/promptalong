@@ -9,6 +9,12 @@ export function presenceVars(slot: PresenceSlot): { color: string; label: string
   return { color: `var(--p-${slot})`, label: `var(--p-${slot}-label)` };
 }
 
+/** Hex values of a presence slot, for places that cannot use CSS variables (editor carets). */
+export function presenceHex(slot: number): { color: string; label: string } {
+  const s = tokens.color.presence.slots[Math.min(Math.max(slot, 1), 8) - 1];
+  return { color: s?.value ?? '#16171D', label: s?.label ?? '#FFFFFF' };
+}
+
 /** Up to two initials from a display name, e.g. "Aarav Rao" -> "AR". */
 export function initials(name: string): string {
   const words = name.trim().split(/\s+/u).filter(Boolean);

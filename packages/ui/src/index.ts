@@ -9,6 +9,7 @@ export {
   PRESENCE_SLOTS,
   MAX_PARTICIPANTS,
   presenceVars,
+  presenceHex,
   initials,
   type PresenceSlot,
 } from './presence';
