@@ -15,5 +15,10 @@
   "devDependencies": {
     "@promptalong/config": "workspace:*",
     "vitest": "5.1.1"
+  },
+  "dependencies": {
+    "lib0": "0.2.120",
+    "y-protocols": "1.0.7",
+    "yjs": "13.6.33"
   }
 }
