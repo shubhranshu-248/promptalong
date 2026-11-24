@@ -1,7 +1,7 @@
 /**
- * The one interface every model backend implements. Backends arrive in P3:
- * mock (scripted, no network), byok (the user's own key, browser -> provider),
- * webllm (in the browser via WebGPU) and ollama (localhost).
+ * The one interface every model backend implements (ADR-003): mock (scripted, no network),
+ * byok (the user's own key, browser -> provider), webllm (in the browser via WebGPU) and
+ * ollama (localhost).
  */
 export type ProviderKind = 'mock' | 'byok' | 'webllm' | 'ollama';
 
@@ -11,6 +11,8 @@ export interface ModelInfo {
   contextWindow: number;
   tokenizer: 'exact' | 'approx';
   free?: boolean;
+  /** GPU memory the in-browser model needs, in MB */
+  sizeMb?: number;
 }
 
 export interface ChatMessage {
@@ -42,8 +44,13 @@ export interface Provider {
   stream(body: string, signal: AbortSignal): AsyncIterable<StreamChunk>;
 }
 
-/** What a room stores about its model. Never a key. */
+/**
+ * What a room stores about its model. Never a key: `endpoint` names a hosted provider for
+ * byok rooms and `setBy` is the participant id of whoever picked it ("Uses Aarav's key").
+ */
 export interface RoomModelChoice {
   kind: ProviderKind;
   model: string;
+  endpoint?: string;
+  setBy?: string;
 }
