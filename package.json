@@ -23,15 +23,18 @@
     "check:traces": "node scripts/check-traces.mjs",
     "check:licenses": "node scripts/check-licenses.mjs",
     "check:budget": "node scripts/check-budget.mjs",
-    "check": "pnpm check:traces && pnpm check:licenses && pnpm lint && pnpm format:check && pnpm typecheck && pnpm test && pnpm build && pnpm check:budget"
+    "check": "pnpm check:traces && pnpm check:licenses && pnpm lint && pnpm format:check && pnpm typecheck && pnpm test && pnpm build && pnpm check:budget",
+    "relay": "node scripts/dev-relay.mjs"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.14.0",
     "@playwright/test": "1.65.1",
     "@promptalong/config": "workspace:*",
     "@types/node": "24.19.2",
+    "@types/ws": "8.18.2",
     "eslint": "10.15.0",
     "prettier": "3.10.1",
-    "typescript": "6.0.3"
+    "typescript": "6.0.3",
+    "ws": "8.23.0"
   }
 }

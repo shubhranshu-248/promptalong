@@ -5,3 +5,4 @@ e2e/test-results
 e2e/playwright-report
 *.svg
 packages/ui/src/styles/tokens.css
+dist-e2e
