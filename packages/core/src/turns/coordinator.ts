@@ -1,9 +1,10 @@
 import type * as Y from 'yjs';
-import { clearPrompt, promptText as readPromptText } from '../room/doc';
+import { historyMessages, tipOf } from '../branches/branches';
+import { fragmentWithSpans, trimWithSpans, type Span } from '../provenance/spans';
+import { MAIN_BRANCH, clearPrompt, draftFragment } from '../room/doc';
 import {
   LOCK_FIELD,
   addTurn,
-  historyMessages,
   sha256Hex,
   turnsMap,
   type TurnError,
@@ -39,6 +40,10 @@ export interface StreamChunkLike {
 
 export interface SendRequest {
   promptText: string;
+  /** author spans of promptText (Retry); a normal Send reads them from the draft */
+  spans?: Span[];
+  /** the branch the turn belongs to (default main) */
+  branchId?: string;
   provider: TurnProvider;
   /** builds the exact body from the messages (shown by the panel, posted by Send) */
   buildBody: (messages: { role: 'user' | 'assistant' | 'system'; content: string }[]) => string;
@@ -164,23 +169,35 @@ export class StreamCoordinator {
     // A normal Send freezes the prompt as it is now, not as it was at the click: letters a
     // co-writer typed during the claim window belong to this turn. Reading, adding the turn and
     // clearing run with no await in between, so nothing can arrive that is cleared but not sent.
-    const sentText = (req.clearPrompt && readPromptText(this.doc).trim()) || req.promptText;
-    const messages = [...historyMessages(this.doc), { role: 'user' as const, content: sentText }];
+    const branchId = req.branchId ?? MAIN_BRANCH;
+    let fromDraft: { text: string; spans: Span[] } | null = null;
+    if (req.clearPrompt) {
+      const draft = fragmentWithSpans(draftFragment(this.doc, branchId));
+      fromDraft = trimWithSpans(draft.text, draft.spans);
+    }
+    const sent = fromDraft?.text ? fromDraft : { text: req.promptText, spans: req.spans ?? [] };
+    const messages = [
+      ...historyMessages(this.doc, branchId),
+      { role: 'user' as const, content: sent.text },
+    ];
     const body = req.buildBody(messages);
     const started = this.o.now();
     let answer!: Y.Text;
     this.doc.transact(() => {
       answer = addTurn(this.doc, {
         id: turnId,
+        branchId,
+        parentId: tipOf(this.doc, branchId),
         createdAt: started,
         sentBy: this.o.pid,
         senderName: this.o.name(),
-        promptText: sentText,
+        promptText: sent.text,
+        spans: sent.spans,
         provider: req.provider,
         requestHash: '',
       });
       lockMap(this.doc).set('current', { ...claim, turnId, beat: 1 });
-      if (req.clearPrompt) clearPrompt(this.doc);
+      if (req.clearPrompt) clearPrompt(this.doc, branchId);
     });
     const requestHash = await sha256Hex(body);
     if (this.isDestroyed()) {

@@ -29,6 +29,13 @@ export function promptFragment(doc: Y.Doc): Y.XmlFragment {
   return doc.getXmlFragment(FIELD.prompt);
 }
 
+export const MAIN_BRANCH = 'main';
+
+/** A branch's draft prompt: main keeps the original `prompt` fragment, others `draft:{id}`. */
+export function draftFragment(doc: Y.Doc, branchId: string): Y.XmlFragment {
+  return branchId === MAIN_BRANCH ? promptFragment(doc) : doc.getXmlFragment(`draft:${branchId}`);
+}
+
 function settingsMap(doc: Y.Doc): Y.Map<unknown> {
   return doc.getMap(FIELD.settings);
 }
@@ -99,9 +106,9 @@ export function upsertPerson(doc: Y.Doc, pid: string, person: PersonRecord): voi
   map.set(pid, person);
 }
 
-/** Plain text of the prompt (paragraphs joined by new lines). */
-export function promptText(doc: Y.Doc): string {
-  return promptFragment(doc)
+/** Plain text of a prompt draft (paragraphs joined by new lines). */
+export function promptText(doc: Y.Doc, branchId: string = MAIN_BRANCH): string {
+  return draftFragment(doc, branchId)
     .toArray()
     .map((node) => (node instanceof Y.XmlElement || node instanceof Y.XmlText ? xmlText(node) : ''))
     .join('\n');
@@ -112,6 +119,7 @@ function xmlText(node: Y.XmlElement | Y.XmlText): string {
     const delta = node.toDelta() as { insert?: unknown }[]; // Yjs types the delta loosely
     return delta.map((op) => (typeof op.insert === 'string' ? op.insert : '')).join('');
   }
+  if (node.nodeName === 'hardBreak') return '\n';
   return node
     .toArray()
     .map((child) =>
@@ -125,8 +133,8 @@ function xmlText(node: Y.XmlElement | Y.XmlText): string {
  * their text is deleted), so letters someone is typing at this moment are never lost and the next
  * prompt starts from the same shared text node (see initRoom).
  */
-export function clearPrompt(doc: Y.Doc): void {
-  const prompt = promptFragment(doc);
+export function clearPrompt(doc: Y.Doc, branchId: string = MAIN_BRANCH): void {
+  const prompt = draftFragment(doc, branchId);
   doc.transact(() => {
     const first = prompt.get(0);
     if (first instanceof Y.XmlElement && first.nodeName === 'paragraph') {
