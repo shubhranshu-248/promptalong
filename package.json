@@ -1,0 +1,37 @@
+{
+  "name": "promptalong",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Everyone prompts. One answer. A real-time multiplayer prompting workspace.",
+  "license": "MIT",
+  "author": "Shubhranshu Sahu",
+  "type": "module",
+  "packageManager": "pnpm@12.21.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @promptalong/web dev",
+    "build": "pnpm -r --filter ./apps/* build",
+    "preview": "pnpm --filter @promptalong/web preview",
+    "lint": "eslint . --max-warnings=0",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "pnpm -r typecheck && tsc -p e2e/tsconfig.json",
+    "test": "pnpm -r test",
+    "e2e": "playwright test -c e2e/playwright.config.ts",
+    "check:traces": "node scripts/check-traces.mjs",
+    "check:licenses": "node scripts/check-licenses.mjs",
+    "check:budget": "node scripts/check-budget.mjs",
+    "check": "pnpm check:traces && pnpm check:licenses && pnpm lint && pnpm format:check && pnpm typecheck && pnpm test && pnpm build && pnpm check:budget"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.14.0",
+    "@playwright/test": "1.65.1",
+    "@promptalong/config": "workspace:*",
+    "@types/node": "24.19.2",
+    "eslint": "10.15.0",
+    "prettier": "3.10.1",
+    "typescript": "6.0.3"
+  }
+}
