@@ -7,12 +7,14 @@ import {
   applyFork,
   chooseSlot,
   listBranches,
+  listContext,
   listMergeEvents,
   listTurns,
   readAuthors,
   turnLabels,
   turnsOnPath,
   type BranchView,
+  type ContextItemView,
   type ForkPayload,
   type MergeEvent,
   readLock,
@@ -21,6 +23,7 @@ import {
   isOverCapacity,
   peopleMap,
   readSettings,
+  readSystemLine,
   upsertPerson,
   type PresentPerson,
   type RoomSettings,
@@ -79,6 +82,10 @@ export interface RoomSnapshot {
   /** everyone who ever wrote here: people of this room + frozen authors of a forked room */
   roster: Record<string, RosterEntry>;
   merges: MergeEvent[];
+  /** the room's context items, in creation order (their text stays in the document) */
+  context: ContextItemView[];
+  /** the room line sent before everything else ('' = none) */
+  systemLine: string;
 }
 
 export interface RosterEntry {
@@ -173,6 +180,8 @@ export class RoomSession {
       labels: {},
       roster: {},
       merges: [],
+      context: [],
+      systemLine: '',
     };
   }
 
@@ -205,6 +214,7 @@ export class RoomSession {
     for (const name of ['branches', 'authors', 'people'])
       this.doc.getMap(name).observe(this.onTurns);
     this.doc.getArray('events').observe(this.onTurns);
+    this.doc.getMap('context').observeDeep(this.onSettings);
     this.sync.onState(this.onSyncState);
     this.sync.connect();
     this.refresh();
@@ -221,6 +231,7 @@ export class RoomSession {
     for (const name of ['branches', 'authors', 'people'])
       this.doc.getMap(name).unobserve(this.onTurns);
     this.doc.getArray('events').unobserve(this.onTurns);
+    this.doc.getMap('context').unobserveDeep(this.onSettings);
     // Before sync stops: an answer this page is streaming is closed as "interrupted" and sent.
     this.stream.destroy();
     this.sync.destroy();
@@ -274,6 +285,7 @@ export class RoomSession {
     this.refresh();
   };
 
+  /** Settings, the send lock and context items: shown at once (a ticked box must not flicker). */
   private readonly onSettings = () => {
     this.refresh();
   };
@@ -391,6 +403,8 @@ export class RoomSession {
       labels: Object.fromEntries(turnLabels(this.doc)),
       roster,
       merges: listMergeEvents(this.doc),
+      context: listContext(this.doc),
+      systemLine: readSystemLine(this.doc),
     });
     if (full && !wasFull) this.leaveBecauseFull();
   }
