@@ -116,8 +116,18 @@ late joiners the answer so far) without anyone sharing a key.
   who wrote what.
 - Each Send freezes a turn: the prompt text with author ranges, the context items included, the
   model, the SHA-256 of the exact request body, and the answer.
-- Branches have their own draft prompt. Turns form a tree through `parentTurnId`; rooms can be
-  forked, two turns compared word by word, and a branch's prompt changes merged back.
+- Branches have their own draft prompt (`draft:{id}`; main keeps `prompt`). A new branch's draft
+  starts as the prompt that came next on its source (edit and retry); that prompt is also the
+  merge base. `settings.activeBranch` decides which draft the shared editor shows, for everyone.
+- Turns form a tree through `parentId`; a branch's history is the parent chain from its newest
+  turn. Labels: T1, T2… on main, T2b, T3b… on branches.
+- Compare: a word diff of two prompts (a small LCS in `packages/core`, no dependency), added words
+  underlined in their writer's colour, answers side by side.
+- Merge: a three-way merge per paragraph. Each side is its draft, or its last sent prompt when
+  the draft is empty. Conflicts are resolved as ours / theirs / both; only changed paragraphs are
+  rewritten, so people typing elsewhere lose nothing. Each merge is recorded (who, from, into).
+- Fork room: a new room gets the turns along the chosen path and a frozen list of their authors,
+  marked with the room they came from. Nothing is ever deleted.
 
 ## Context and token budget
 
