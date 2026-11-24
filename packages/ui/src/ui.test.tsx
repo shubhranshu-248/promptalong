@@ -7,6 +7,11 @@ describe('initials', () => {
     ['meera', 'ME'],
     ['  Kabir   Singh Sethi ', 'KS'],
     ['', '?'],
+    ['Test user (phone)', 'TU'],
+    ['(phone)', '?'],
+    ['A', 'A'],
+    ['— Ishita', 'IS'],
+    ['Élodie Ørsted', 'ÉØ'],
   ])('%j -> %s', (name, expected) => {
     expect(initials(name)).toBe(expected);
   });

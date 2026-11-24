@@ -15,11 +15,18 @@ export function presenceHex(slot: number): { color: string; label: string } {
   return { color: s?.value ?? '#16171D', label: s?.label ?? '#FFFFFF' };
 }
 
-/** Up to two initials from a display name, e.g. "Aarav Rao" -> "AR". */
+/**
+ * Up to two initials from a display name, e.g. "Aarav Rao" -> "AR", "meera" -> "ME".
+ * Only letters and digits count, and text in brackets is skipped: "Test user (phone)" -> "TU".
+ */
 export function initials(name: string): string {
-  const words = name.trim().split(/\s+/u).filter(Boolean);
-  if (words.length === 0) return '?';
-  const first = words[0]?.[0] ?? '';
-  const second = words.length > 1 ? (words[words.length - 1]?.[0] ?? '') : (words[0]?.[1] ?? '');
+  const plain = name.replace(/[([{][^)\]}]*[)\]}]?/gu, ' ');
+  const words = plain.match(/[\p{L}\p{N}][\p{L}\p{M}\p{N}]*/gu) ?? [];
+  const firstWord = words[0];
+  if (!firstWord) return '?';
+  const lastWord = words.length > 1 ? words[words.length - 1] : undefined;
+  const letters = Array.from(firstWord.replace(/\p{M}/gu, ''));
+  const first = letters[0] ?? '';
+  const second = lastWord ? (Array.from(lastWord)[0] ?? '') : (letters[1] ?? '');
   return (first + second).toUpperCase();
 }
