@@ -46,6 +46,21 @@ export interface TurnView {
 
 const STATUSES = new Set<string>(['streaming', 'done', 'stopped', 'failed', 'interrupted']);
 
+/** Author spans from the network: well-formed ranges only, at most 2000. */
+function readSpans(value: unknown): { from: number; to: number; uid: string }[] {
+  if (!Array.isArray(value)) return [];
+  const out: { from: number; to: number; uid: string }[] = [];
+  for (const s of value.slice(0, 2000) as unknown[]) {
+    if (typeof s !== 'object' || s === null) continue;
+    const v = s as Record<string, unknown>;
+    if (typeof v.from !== 'number' || typeof v.to !== 'number' || typeof v.uid !== 'string')
+      continue;
+    if (v.to <= v.from || v.from < 0) continue;
+    out.push({ from: v.from, to: v.to, uid: v.uid.slice(0, 64) });
+  }
+  return out;
+}
+
 export function turnsMap(doc: Y.Doc): Y.Map<Y.Map<unknown>> {
   return doc.getMap<Y.Map<unknown>>(TURNS_FIELD);
 }
@@ -77,7 +92,7 @@ export function readTurn(id: string, turn: Y.Map<unknown>): TurnView | null {
     createdAt,
     sentBy,
     senderName: str(turn.get('senderName'), 24) ?? '',
-    prompt: { text: str(prompt.text, 100_000) ?? '', spans: [] },
+    prompt: { text: str(prompt.text, 100_000) ?? '', spans: readSpans(prompt.spans) },
     provider: {
       kind: str(provider.kind, 16) ?? 'mock',
       model: str(provider.model, 200) ?? '',
@@ -127,43 +142,33 @@ export function listTurns(doc: Y.Doc): TurnView[] {
 
 export interface NewTurn {
   id: string;
+  branchId: string;
+  parentId: string | null;
   createdAt: number;
   sentBy: string;
   senderName: string;
   promptText: string;
+  spans: { from: number; to: number; uid: string }[];
   provider: TurnProvider;
   requestHash: string;
 }
 
-/** Writes a new streaming turn after the current last one. Returns its answer text. */
+/** Writes a new streaming turn. Returns its answer text. */
 export function addTurn(doc: Y.Doc, turn: NewTurn): Y.Text {
-  const last = listTurns(doc).at(-1);
   const map = new Y.Map<unknown>();
   const answer = new Y.Text();
-  map.set('branchId', 'main');
-  map.set('parentId', last?.id ?? null);
+  map.set('branchId', turn.branchId);
+  map.set('parentId', turn.parentId);
   map.set('createdAt', turn.createdAt);
   map.set('sentBy', turn.sentBy);
   map.set('senderName', turn.senderName);
-  map.set('prompt', { text: turn.promptText, spans: [] });
+  map.set('prompt', { text: turn.promptText, spans: turn.spans.map((x) => ({ ...x })) });
   map.set('provider', { ...turn.provider });
   map.set('requestHash', turn.requestHash);
   map.set('status', 'streaming');
   map.set('answer', answer);
   turnsMap(doc).set(turn.id, map);
   return answer;
-}
-
-/** History sent to the model: earlier prompts and the answers that have text. */
-export function historyMessages(doc: Y.Doc): { role: 'user' | 'assistant'; content: string }[] {
-  const out: { role: 'user' | 'assistant'; content: string }[] = [];
-  for (const t of listTurns(doc)) {
-    if (t.status === 'streaming' || t.status === 'failed') continue;
-    if (t.answer.trim().length === 0) continue;
-    out.push({ role: 'user', content: t.prompt.text });
-    out.push({ role: 'assistant', content: t.answer });
-  }
-  return out;
 }
 
 /** SHA-256 of a string as lower-case hex (the stored requestHash, ADR-005). */

@@ -3,7 +3,6 @@ export {
   TURNS_FIELD,
   addTurn,
   answerText,
-  historyMessages,
   listTurns,
   readTurn,
   sha256Hex,

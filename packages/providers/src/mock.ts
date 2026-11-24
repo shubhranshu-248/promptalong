@@ -7,8 +7,8 @@ import type { ChatRequest, ModelInfo, Provider, StreamChunk } from './types';
  * The demo model: scripted answers, no network, no key. The same request always produces the same
  * chunks (same text, same split), so every test run and every demo looks the same.
  *
- * Two prompt prefixes exist for demos and tests: "/fail" answers with a rate-limit error and
- * "/short" gives a one-sentence answer.
+ * Three prompt prefixes exist for demos and tests: "/fail" answers with a rate-limit error,
+ * "/short" gives a one-sentence answer and "/slow" streams five times slower.
  */
 export interface MockOptions {
   /** delay between chunks in ms (default 40) */
@@ -114,8 +114,9 @@ export class MockProvider implements Provider {
       throw new ProviderError('rate-limit', 'rate limit reached, try again in 20 s', 429);
     }
     const answer = mockAnswer(req);
+    const delay = last.trim().startsWith('/slow') ? this.chunkMs * 5 : this.chunkMs;
     for (const text of mockChunks(answer)) {
-      await sleep(this.chunkMs, signal);
+      await sleep(delay, signal);
       yield { text };
     }
     yield { text: '', done: true, usage: { input, output: approxTokens(answer) } };

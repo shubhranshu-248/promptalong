@@ -1,5 +1,19 @@
 import * as Menu from '@radix-ui/react-dropdown-menu';
-import { cleanDisplayName, formatRoomCode, setRoomModel, type TurnView } from '@promptalong/core';
+import {
+  MAIN_BRANCH,
+  applyMerge,
+  cleanDisplayName,
+  createBranch,
+  createRoomCode,
+  forkPayload,
+  formatRoomCode,
+  planMerge,
+  renameBranch,
+  setActiveBranch,
+  setRoomModel,
+  type MergePlan,
+  type TurnView,
+} from '@promptalong/core';
 import {
   DEFAULT_MODEL,
   findEndpoint,
@@ -8,7 +22,7 @@ import {
   type RoomModelChoice,
 } from '@promptalong/providers';
 import { Button, LogoMark, buttonClass, cx, initials } from '@promptalong/ui';
-import { useCallback, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { useKeyStore } from '../keys/useKeyStore';
 import { AddKeyDialog, ModelDialog } from '../models/ModelDialog';
 import { isWebLlmReady } from '../models/webllm-state';
@@ -18,8 +32,13 @@ import { getThemePreference, setThemePreference, type ThemePreference } from '..
 import { saveDisplayName } from './identity';
 import { PromptEditor } from './PromptEditor';
 import { RenameDialog, ShareDialog } from './dialogs';
-import { sendPrompt } from './send';
+import { AuthorStyles } from './AuthorText';
+import { authorName } from './authors';
+import { BranchDialog, ForkDialog, MergeDialog, RenameBranchDialog } from './branch-dialogs';
+import { Compare } from './Compare';
+import { sendPrompt, type Retry } from './send';
 import { Thread } from './Thread';
+import { Tree } from './Tree';
 import type { PersonView, RoomSession, RoomSnapshot } from './session';
 import { useRoomSnapshot } from './useRoomSession';
 
@@ -260,11 +279,45 @@ export function RoomView({ session, openShare }: { session: RoomSession; openSha
   const navigate = useNavigate();
   const [shareOpen, setShareOpen] = useState(openShare);
   const [renameOpen, setRenameOpen] = useState(false);
-  const [tab, setTab] = useState<'chat' | 'people'>('chat');
+  const [tab, setTab] = useState<'chat' | 'people' | 'tree'>('chat');
+  const [panel, setPanel] = useState<'people' | 'tree'>('people');
+  const [selected, setSelected] = useState<string[]>([]);
+  const [comparing, setComparing] = useState(false);
+  const [branchFrom, setBranchFrom] = useState<string | null>(null);
+  const [forkOpen, setForkOpen] = useState(false);
+  const [merge, setMerge] = useState<MergePlan | null>(null);
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [showAuthors, setShowAuthors] = useState(true);
+  const [hoverAuthor, setHoverAuthor] = useState<{ name: string; x: number; y: number } | null>(
+    null,
+  );
+  const [seenBranch, setSeenBranch] = useState(snap.activeBranch);
+  const [switchNotice, setSwitchNotice] = useState<{ by: string; to: string; from: string } | null>(
+    null,
+  );
+  // "Kabir switched the room to shorter-version" (mockup 12 D) - derived while rendering.
+  if (seenBranch !== snap.activeBranch) {
+    setSeenBranch(snap.activeBranch);
+    const by = snap.activeBranchBy;
+    if (by && by !== snap.me.pid) {
+      setSwitchNotice({ by, to: snap.activeBranch, from: seenBranch });
+    } else {
+      setSwitchNotice(null);
+    }
+  }
+  useEffect(() => {
+    if (!switchNotice) return;
+    const t = setTimeout(() => {
+      setSwitchNotice(null);
+    }, 8000);
+    return () => {
+      clearTimeout(t);
+    };
+  }, [switchNotice]);
   const [modelOpen, setModelOpen] = useState(false);
   const [modelFocus, setModelFocus] = useState<ProviderKind | undefined>(undefined);
   const [addKeyOpen, setAddKeyOpen] = useState(false);
-  const [pendingRetry, setPendingRetry] = useState<string | undefined>(undefined);
+  const [pendingRetry, setPendingRetry] = useState<Retry | undefined>(undefined);
   const [notice, setNotice] = useState<string | null>(null);
   const keys = useKeyStore();
 
@@ -291,7 +344,7 @@ export function RoomView({ session, openShare }: { session: RoomSession; openSha
         : null;
 
   const send = useCallback(
-    (retryText?: string) => {
+    (retryText?: Retry) => {
       const s = session.getSnapshot();
       const choice = s.model;
       if (choice.kind === 'byok' && !keys.has(choice.endpoint ?? '')) {
@@ -320,6 +373,19 @@ export function RoomView({ session, openShare }: { session: RoomSession; openSha
   const title = snap.settings?.name ?? formatRoomCode(session.code);
   const others = snap.people.length - 1;
   const localOnly = realtimeConfig.mode === 'none';
+  const branchName = (id: string) => snap.branches.find((b) => b.id === id)?.name ?? id;
+  const turnById = (id: string) => snap.turns.find((t) => t.id === id) ?? null;
+  const compareA = comparing && selected.length === 2 ? turnById(selected[0] ?? '') : null;
+  const compareB = comparing && selected.length === 2 ? turnById(selected[1] ?? '') : null;
+  const showTree = tab === 'tree' || (tab !== 'people' && panel === 'tree');
+
+  const openMerge = (fromBranch: string) => {
+    setMerge(planMerge(session.doc, fromBranch, snap.activeBranch));
+  };
+  const switchBranch = (id: string) => {
+    setActiveBranch(session.doc, id, me.pid);
+    setComparing(false);
+  };
 
   return (
     <div className="flex h-dvh flex-col">
@@ -338,6 +404,14 @@ export function RoomView({ session, openShare }: { session: RoomSession; openSha
             {session.code} · {snap.people.length} {snap.people.length === 1 ? 'person' : 'people'}
           </p>
         </div>
+        {snap.activeBranch !== MAIN_BRANCH ? (
+          <span
+            className="flex-none rounded-pill bg-accent-soft px-2.5 py-1 text-xs font-semibold text-accent"
+            data-testid="branch-chip"
+          >
+            {branchName(snap.activeBranch)}
+          </span>
+        ) : null}
         <span className="rounded-sm bg-surface-2 px-2 py-[5px] font-mono text-xs leading-none max-md:hidden">
           {session.code}
         </span>
@@ -418,16 +492,82 @@ export function RoomView({ session, openShare }: { session: RoomSession; openSha
         </Notice>
       ) : null}
 
-      <div className="grid min-h-0 flex-1 grid-cols-[260px_1fr] max-md:grid-cols-1">
+      <div
+        className={cx(
+          'grid min-h-0 flex-1 max-md:grid-cols-1',
+          showTree ? 'grid-cols-[400px_1fr]' : 'grid-cols-[260px_1fr]',
+        )}
+      >
         <aside
           aria-label="Room"
           className={cx(
             'flex flex-col gap-[18px] overflow-auto border-r border-border bg-surface p-4',
-            tab === 'people' ? 'max-md:flex' : 'max-md:hidden',
+            tab === 'chat' ? 'max-md:hidden' : 'max-md:flex',
           )}
         >
-          <PeopleList people={snap.people} />
-          <section className="mt-auto" aria-labelledby="room-h">
+          <div
+            className="flex gap-1 rounded-md bg-surface-2 p-1 max-md:hidden"
+            role="tablist"
+            aria-label="Side panel"
+          >
+            {(['people', 'tree'] as const).map((p) => (
+              <button
+                key={p}
+                type="button"
+                role="tab"
+                aria-selected={panel === p}
+                onClick={() => {
+                  setPanel(p);
+                }}
+                className={cx(
+                  'h-8 flex-1 rounded-sm text-sm font-semibold',
+                  panel === p ? 'bg-surface text-text shadow-sm' : 'text-text-muted',
+                )}
+                data-testid={`panel-${p}`}
+              >
+                {p === 'people'
+                  ? `People (${String(snap.people.length)})`
+                  : `Tree (${String(snap.branches.length)})`}
+              </button>
+            ))}
+          </div>
+          {showTree ? (
+            <Tree
+              turns={snap.turns}
+              branches={snap.branches}
+              activeBranch={snap.activeBranch}
+              labels={snap.labels}
+              roster={snap.roster}
+              me={me.pid}
+              selected={selected}
+              merges={snap.merges}
+              actions={{
+                onToggleSelect: (id) => {
+                  setSelected((prev) =>
+                    prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id].slice(-2),
+                  );
+                },
+                onBranchFrom: (id) => {
+                  setBranchFrom(id);
+                },
+                onCompare: () => {
+                  setComparing(true);
+                  setTab('chat');
+                },
+                onSwitch: switchBranch,
+                onRename: (id) => {
+                  setRenaming(id);
+                },
+                onMerge: openMerge,
+                onFork: () => {
+                  setForkOpen(true);
+                },
+              }}
+            />
+          ) : (
+            <PeopleList people={snap.people} />
+          )}
+          <section className={cx('mt-auto', showTree && 'hidden')} aria-labelledby="room-h">
             <h2
               id="room-h"
               className="font-body text-xs font-semibold tracking-[.06em] text-text-muted uppercase"
@@ -448,10 +588,27 @@ export function RoomView({ session, openShare }: { session: RoomSession; openSha
           <div
             className={cx(
               'flex flex-1 overflow-auto p-8 max-md:p-4',
-              snap.turns.length === 0 && 'items-center justify-center',
+              snap.path.length === 0 && !compareA && 'items-center justify-center',
             )}
           >
-            {snap.turns.length === 0 ? (
+            {compareA && compareB ? (
+              <Compare
+                a={compareA}
+                b={compareB}
+                labels={snap.labels}
+                branchName={branchName}
+                roster={snap.roster}
+                me={me.pid}
+                activeBranchName={branchName(snap.activeBranch)}
+                canMerge={compareB.branchId !== snap.activeBranch}
+                onMerge={() => {
+                  openMerge(compareB.branchId);
+                }}
+                onClose={() => {
+                  setComparing(false);
+                }}
+              />
+            ) : snap.path.length === 0 ? (
               <p
                 className="max-w-[420px] text-center text-sm text-text-muted"
                 data-testid="thread-empty"
@@ -461,14 +618,23 @@ export function RoomView({ session, openShare }: { session: RoomSession; openSha
               </p>
             ) : (
               <Thread
-                turns={snap.turns}
+                turns={snap.path}
                 people={snap.people}
+                ctx={{
+                  roster: snap.roster,
+                  labels: snap.labels,
+                  showAuthors,
+                  branchName,
+                }}
                 actions={{
+                  onBranchFrom: (id) => {
+                    setBranchFrom(id);
+                  },
                   onStop: (id) => {
                     session.stream.requestStop(id);
                   },
                   onRetry: (turn: TurnView) => {
-                    send(turn.prompt.text);
+                    send({ text: turn.prompt.text, spans: turn.prompt.spans });
                   },
                   onChangeModel: () => {
                     openModel();
@@ -486,10 +652,57 @@ export function RoomView({ session, openShare }: { session: RoomSession; openSha
               aria-live="polite"
               data-testid="sync-status"
             >
-              <b className="text-text">Shared prompt</b> · {statusLine(snap)}
+              <b className="text-text">Shared prompt</b>
+              {snap.activeBranch !== MAIN_BRANCH
+                ? ` · ${branchName(snap.activeBranch)}`
+                : ''} · {statusLine(snap)}
+              <button
+                type="button"
+                aria-pressed={showAuthors}
+                onClick={() => {
+                  setShowAuthors((v) => !v);
+                }}
+                className="ml-3 inline-flex items-center gap-1.5 align-middle font-semibold text-text"
+                data-testid="show-authors"
+              >
+                <span
+                  aria-hidden="true"
+                  className={cx(
+                    'relative inline-block h-4 w-7 rounded-pill transition-colors',
+                    showAuthors ? 'bg-accent' : 'bg-border-strong',
+                  )}
+                >
+                  <span
+                    className={cx(
+                      'absolute top-0.5 size-3 rounded-full bg-surface transition-[left]',
+                      showAuthors ? 'left-[14px]' : 'left-0.5',
+                    )}
+                  />
+                </span>
+                Show authors
+              </button>
             </p>
+            <AuthorStyles roster={snap.roster} show={showAuthors} />
             {snap.savedLocally && snap.state !== 'connecting' ? (
               <div
+                className={cx(showAuthors && 'pa-show-authors')}
+                onMouseOver={(e) => {
+                  const el = (e.target as HTMLElement).closest('[data-author]');
+                  const uid = el?.getAttribute('data-author') ?? '';
+                  if (!el || !uid || !showAuthors) {
+                    setHoverAuthor(null);
+                    return;
+                  }
+                  const r = el.getBoundingClientRect();
+                  setHoverAuthor({
+                    name: authorName(snap.roster, uid, me.pid),
+                    x: r.left,
+                    y: r.top,
+                  });
+                }}
+                onMouseLeave={() => {
+                  setHoverAuthor(null);
+                }}
                 onKeyDownCapture={(e) => {
                   if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
                     e.preventDefault();
@@ -498,7 +711,11 @@ export function RoomView({ session, openShare }: { session: RoomSession; openSha
                   }
                 }}
               >
-                <PromptEditor session={session} />
+                <PromptEditor
+                  key={snap.activeBranch}
+                  session={session}
+                  branchId={snap.activeBranch}
+                />
               </div>
             ) : (
               // Starting the editor before the first sync would add a second empty paragraph.
@@ -550,7 +767,7 @@ export function RoomView({ session, openShare }: { session: RoomSession; openSha
         aria-label="Room sections"
         className="flex h-[60px] flex-none border-t border-border bg-surface md:hidden"
       >
-        {(['chat', 'people'] as const).map((t) => (
+        {(['chat', 'people', 'tree'] as const).map((t) => (
           <button
             key={t}
             type="button"
@@ -567,11 +784,122 @@ export function RoomView({ session, openShare }: { session: RoomSession; openSha
               aria-hidden="true"
               className={cx('h-[3px] w-5 rounded-sm bg-current', tab === t ? '' : 'opacity-50')}
             />
-            {t === 'chat' ? 'Chat' : `People (${snap.people.length})`}
+            {t === 'chat' ? 'Chat' : t === 'people' ? `People (${snap.people.length})` : 'Tree'}
           </button>
         ))}
       </nav>
 
+      {hoverAuthor ? (
+        <div
+          role="tooltip"
+          className="pointer-events-none fixed z-50 rounded-sm bg-text px-2 py-1 text-xs font-semibold text-bg"
+          style={{ left: hoverAuthor.x, top: Math.max(4, hoverAuthor.y - 28) }}
+        >
+          Written by {hoverAuthor.name}
+        </div>
+      ) : null}
+      {switchNotice ? (
+        <div
+          role="status"
+          className="fixed bottom-6 left-1/2 z-40 flex -translate-x-1/2 items-center gap-3 rounded-lg bg-text px-4 py-3 text-sm text-bg shadow-lg max-md:inset-x-3 max-md:bottom-[200px] max-md:translate-x-0 max-md:justify-between"
+          data-testid="switch-notice"
+        >
+          <span>
+            {authorName(snap.roster, switchNotice.by, me.pid)} switched the room to{' '}
+            <b>{branchName(switchNotice.to)}</b>
+          </span>
+          <button
+            type="button"
+            className="rounded-md border border-bg/40 px-2.5 py-1 font-semibold"
+            onClick={() => {
+              switchBranch(switchNotice.from);
+              setSwitchNotice(null);
+            }}
+          >
+            Back to {branchName(switchNotice.from)}
+          </button>
+        </div>
+      ) : null}
+      <BranchDialog
+        open={branchFrom !== null}
+        onOpenChange={(o) => {
+          if (!o) setBranchFrom(null);
+        }}
+        turn={branchFrom ? turnById(branchFrom) : null}
+        turnLabel={branchFrom ? (snap.labels[branchFrom] ?? '') : ''}
+        taken={snap.branches.map((b) => b.name)}
+        onCreate={(name, switchNow) => {
+          const from = branchFrom ? turnById(branchFrom) : null;
+          if (!from) return;
+          const created = createBranch(session.doc, {
+            id: crypto.randomUUID(),
+            name,
+            fromTurnId: from.id,
+            sourceBranch: from.branchId,
+            by: me.pid,
+            at: Date.now(),
+          });
+          if (created && switchNow) switchBranch(created.id);
+          setSelected([]);
+        }}
+      />
+      <ForkDialog
+        open={forkOpen}
+        onOpenChange={setForkOpen}
+        path={snap.path}
+        labels={snap.labels}
+        branchName={branchName(snap.activeBranch)}
+        roomName={title}
+        roomCode={session.code}
+        onFork={(upto, name) => {
+          const payload = forkPayload(session.doc, {
+            branchId: snap.activeBranch,
+            uptoTurnId: upto,
+            fromCode: session.code,
+            names: (pid) => snap.roster[pid] ?? null,
+          });
+          if (!payload) return;
+          void navigate(`/r/${createRoomCode()}`, {
+            state: {
+              create: { name, sendPolicy: snap.settings?.sendPolicy ?? 'everyone', fork: payload },
+              share: true,
+            },
+          });
+        }}
+      />
+      <MergeDialog
+        open={merge !== null}
+        onOpenChange={(o) => {
+          if (!o) setMerge(null);
+        }}
+        plan={merge}
+        fromName={merge ? branchName(merge.from) : ''}
+        intoName={merge ? branchName(merge.into) : ''}
+        roster={snap.roster}
+        me={me.pid}
+        onMerge={(choices) => {
+          if (!merge) return;
+          // re-plan against the latest drafts so nothing typed meanwhile is lost
+          const fresh = planMerge(session.doc, merge.from, merge.into);
+          applyMerge(session.doc, fresh.conflicts === merge.conflicts ? fresh : merge, choices, {
+            id: crypto.randomUUID(),
+            by: me.pid,
+            at: Date.now(),
+          });
+          setComparing(false);
+        }}
+      />
+      <RenameBranchDialog
+        open={renaming !== null}
+        onOpenChange={(o) => {
+          if (!o) setRenaming(null);
+        }}
+        current={renaming ? branchName(renaming) : ''}
+        taken={snap.branches.map((b) => b.name)}
+        onRename={(name) => {
+          if (renaming) renameBranch(session.doc, renaming, name);
+        }}
+      />
       <ShareDialog
         open={shareOpen}
         onOpenChange={setShareOpen}

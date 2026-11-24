@@ -151,6 +151,15 @@ describe('mock provider', () => {
     expect(mockChunks(s).length).toBeGreaterThan(1);
   });
 
+  it('/slow streams the same answer five times slower', async () => {
+    const timed = new MockProvider({ chunkMs: 4 });
+    const t0 = Date.now();
+    const chunks = await collect(
+      timed.stream(timed.buildRequestBody(req('/slow hi')), new AbortController().signal),
+    );
+    expect(Date.now() - t0).toBeGreaterThanOrEqual((chunks.length - 1) * 4 * 5 - 5);
+  });
+
   it('/fail answers with a rate-limit error', async () => {
     const body = mock.buildRequestBody(req('/fail please'));
     await expect(collect(mock.stream(body, new AbortController().signal))).rejects.toMatchObject({

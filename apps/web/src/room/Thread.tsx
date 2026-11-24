@@ -2,6 +2,8 @@ import type { TurnView } from '@promptalong/core';
 import { approxTokens } from '@promptalong/providers';
 import { Button, cx } from '@promptalong/ui';
 import { useEffect, useRef, type ReactNode } from 'react';
+import { AttributedText } from './AuthorText';
+import type { Roster } from './authors';
 import type { PersonView } from './session';
 
 export interface ThreadActions {
@@ -9,6 +11,14 @@ export interface ThreadActions {
   onRetry: (turn: TurnView) => void;
   onChangeModel: () => void;
   onUpdateKey: (turn: TurnView) => void;
+  onBranchFrom: (turnId: string) => void;
+}
+
+export interface ThreadContext {
+  roster: Roster;
+  labels: Record<string, string>;
+  showAuthors: boolean;
+  branchName: (id: string) => string;
 }
 
 function nameOf(pid: string | undefined, people: PersonView[], fallback = 'Someone'): string {
@@ -52,20 +62,35 @@ function PromptBubble({
   turn,
   index,
   people,
+  ctx,
 }: {
   turn: TurnView;
   index: number;
   people: PersonView[];
+  ctx: ThreadContext;
 }) {
   const sender = people.find((p) => p.pid === turn.sentBy);
-  const name = sender ? (sender.me ? 'you' : sender.name) : turn.senderName || 'Someone';
+  const name = sender
+    ? sender.me
+      ? 'you'
+      : sender.name
+    : (ctx.roster[turn.sentBy]?.name ?? (turn.senderName || 'Someone'));
+  const me = people.find((p) => p.me)?.pid;
+  const label = ctx.labels[turn.id] ?? `T${String(index + 1)}`;
   return (
     <div className="ml-auto max-w-[min(590px,92%)] rounded-lg bg-surface-2 px-[18px] py-3.5">
       <p className="mb-1 text-xs text-text-muted">
-        Turn {index + 1} · sent by {name}
+        Turn {label.replace(/^T/u, '')} · sent by {name}
+        {turn.branchId !== 'main' ? ` · ${ctx.branchName(turn.branchId)}` : ''}
       </p>
       <p className="whitespace-pre-wrap break-words" data-testid="turn-prompt">
-        {turn.prompt.text}
+        <AttributedText
+          text={turn.prompt.text}
+          spans={turn.prompt.spans}
+          roster={ctx.roster}
+          {...(me ? { me } : {})}
+          show={ctx.showAuthors}
+        />
       </p>
     </div>
   );
@@ -210,6 +235,18 @@ function Answer({
           prompt with your model.
         </p>
       ) : null}
+      {turn.status === 'done' ? (
+        <div className="mt-2.5 flex flex-wrap items-center gap-2">
+          <Button
+            size="sm"
+            onClick={() => {
+              actions.onBranchFrom(turn.id);
+            }}
+          >
+            Branch from here
+          </Button>
+        </div>
+      ) : null}
       {turn.status === 'failed' || turn.status === 'stopped' || turn.status === 'interrupted' ? (
         <div className="mt-3 flex flex-wrap items-center gap-2">
           {turn.status === 'failed' &&
@@ -239,7 +276,16 @@ function Answer({
             <Button size="sm" onClick={actions.onChangeModel}>
               Change model
             </Button>
-          ) : null}
+          ) : (
+            <Button
+              size="sm"
+              onClick={() => {
+                actions.onBranchFrom(turn.id);
+              }}
+            >
+              Branch from here
+            </Button>
+          )}
         </div>
       ) : null}
       {turn.status === 'failed' ? (
@@ -258,10 +304,12 @@ export function Thread({
   turns,
   people,
   actions,
+  ctx,
 }: {
   turns: TurnView[];
   people: PersonView[];
   actions: ThreadActions;
+  ctx: ThreadContext;
 }) {
   const end = useRef<HTMLDivElement>(null);
   const box = useRef<HTMLDivElement>(null);
@@ -297,8 +345,12 @@ export function Thread({
       data-testid="thread"
     >
       {turns.map((turn, i) => (
-        <section key={turn.id} className="flex flex-col gap-4" aria-label={`Turn ${String(i + 1)}`}>
-          <PromptBubble turn={turn} index={i} people={people} />
+        <section
+          key={turn.id}
+          className="flex flex-col gap-4"
+          aria-label={`Turn ${ctx.labels[turn.id] ?? String(i + 1)}`}
+        >
+          <PromptBubble turn={turn} index={i} people={people} ctx={ctx} />
           <Answer turn={turn} people={people} actions={actions} isLast={i === turns.length - 1} />
         </section>
       ))}

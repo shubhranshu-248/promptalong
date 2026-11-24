@@ -18,7 +18,9 @@ prompt, one shared answer and one shared history.
 > Status: early development. Rooms, live co-writing (shared prompt, live cursors, offline editing
 > that syncs back) and the shared answer work: anyone presses Send and everyone watches the same
 > answer stream in, from the demo model, your own key, a model in your browser or Ollama.
-> Authorship, branches and the context panel come next. Rooms are not private yet: anyone with a
+> Every prompt shows who wrote which part, and the conversation branches like a git history:
+> branch from any turn, compare two turns, merge prompt changes back, or fork the room. The
+> context panel comes next. Rooms are not private yet: anyone with a
 > room code can join it.
 
 ## What makes it different

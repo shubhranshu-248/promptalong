@@ -5,8 +5,9 @@ import Text from '@tiptap/extension-text';
 import { Placeholder } from '@tiptap/extensions';
 import { EditorContent, useEditor } from '@tiptap/react';
 import { memo, useMemo } from 'react';
-import { promptFragment } from '@promptalong/core';
+import { draftFragment } from '@promptalong/core';
 import { presenceHex } from '@promptalong/ui';
+import { AuthorMark } from './author-mark';
 import { readUser, type RoomSession } from './session';
 import { YjsCollaboration, isRemoteChange } from './yjs-collaboration';
 
@@ -45,7 +46,14 @@ function renderSelection(raw: Record<string, unknown>) {
  * is handling a keystroke. So it is memoised (re-renders only when the session changes) and
  * reports activity outside the editor transaction. Carets read each person's awareness directly.
  */
-export const PromptEditor = memo(function PromptEditor({ session }: { session: RoomSession }) {
+export const PromptEditor = memo(function PromptEditor({
+  session,
+  branchId,
+}: {
+  session: RoomSession;
+  /** which branch's draft to edit (the room's active branch) */
+  branchId: string;
+}) {
   const options = useMemo(() => {
     const report = (activity: 'typing' | 'selecting' | 'idle') => {
       setTimeout(() => {
@@ -58,9 +66,10 @@ export const PromptEditor = memo(function PromptEditor({ session }: { session: R
         Paragraph,
         Text,
         HardBreak,
+        AuthorMark.configure({ uid: session.pid }),
         Placeholder.configure({ placeholder: 'Write the prompt together…' }),
         YjsCollaboration.configure({
-          fragment: promptFragment(session.doc),
+          fragment: draftFragment(session.doc, branchId),
           awareness: session.awareness,
           renderCaret,
           renderSelection,
@@ -92,9 +101,9 @@ export const PromptEditor = memo(function PromptEditor({ session }: { session: R
       immediatelyRender: true,
       shouldRerenderOnTransaction: false,
     };
-  }, [session]);
+  }, [session, branchId]);
 
-  const editor = useEditor(options, [session]);
+  const editor = useEditor(options, [session, branchId]);
 
   return <EditorContent editor={editor} />;
 });

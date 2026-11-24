@@ -1,4 +1,9 @@
-import { cleanDisplayName, formatRoomCode, normalizeRoomCode } from '@promptalong/core';
+import {
+  cleanDisplayName,
+  formatRoomCode,
+  normalizeRoomCode,
+  type ForkPayload,
+} from '@promptalong/core';
 import { Button, Chip, buttonClass, initials, presenceHex } from '@promptalong/ui';
 import { useEffect, useState } from 'react';
 import { Link, Navigate, useLocation, useParams } from 'react-router';
@@ -21,6 +26,17 @@ function readState(value: unknown): RoomLocationState {
   const c = v.create as Record<string, unknown> | undefined;
   if (c && typeof c.name === 'string' && (c.sendPolicy === 'everyone' || c.sendPolicy === 'host')) {
     out.create = { name: c.name, sendPolicy: c.sendPolicy };
+    const f = c.fork as Record<string, unknown> | undefined;
+    // Fork room: turns + frozen authors copied by this app in another room (same origin).
+    if (
+      f &&
+      typeof f.fromCode === 'string' &&
+      Array.isArray(f.turns) &&
+      typeof f.authors === 'object' &&
+      f.authors !== null
+    ) {
+      out.create.fork = f as unknown as ForkPayload;
+    }
   }
   if (v.share === true) out.share = true;
   return out;
@@ -96,8 +112,13 @@ function RoomLoader({
   return <RoomView session={session} openShare={state.share === true} />;
 }
 
+/** A new room code (e.g. after Fork room) mounts a fresh page with its own creation details. */
 export function RoomPage() {
   const { code: raw = '' } = useParams();
+  return <RoomPageFor key={raw} raw={raw} />;
+}
+
+function RoomPageFor({ raw }: { raw: string }) {
   const location = useLocation();
   const code = normalizeRoomCode(raw);
   const [name, setName] = useState<string | null>(() => getDisplayName());
