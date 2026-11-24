@@ -11,15 +11,15 @@ test('landing page loads with its main actions', async ({ page }) => {
 });
 
 test('two people open the same room link in separate browsers', async ({ browser }) => {
-  // P1 smoke: two isolated contexts (like two laptops) reach the same room route.
-  // P2 replaces this with real shared typing.
+  // Two isolated contexts (like two laptops) open the same link; shared typing is in collab.spec.
   const a = await browser.newContext();
   const b = await browser.newContext();
   try {
     const [pageA, pageB] = await Promise.all([a.newPage(), b.newPage()]);
     await Promise.all([pageA.goto('/r/k7q-m2x'), pageB.goto('/r/K7QM2X')]);
     for (const p of [pageA, pageB]) {
-      await expect(p.getByRole('heading', { name: 'Room K7Q-M2X' })).toBeVisible();
+      await expect(p.getByRole('heading', { name: 'Join the room' })).toBeVisible();
+      await expect(p.getByText('Room K7Q-M2X')).toBeVisible();
     }
   } finally {
     await Promise.all([a.close(), b.close()]);

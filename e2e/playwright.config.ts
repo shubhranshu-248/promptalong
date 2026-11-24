@@ -1,6 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
 const PORT = 4173;
+const ROOT = new URL('..', import.meta.url).pathname; // web servers run from the repo root
 const executablePath = process.env.PW_CHROMIUM_PATH;
 
 export default defineConfig({
@@ -26,10 +27,22 @@ export default defineConfig({
         ]
       : []),
   ],
-  webServer: {
-    command: 'pnpm --filter @promptalong/web preview',
-    url: `http://localhost:${PORT}`,
-    reuseExistingServer: !process.env.CI,
-    timeout: 60_000,
-  },
+  webServer: [
+    {
+      command: 'node scripts/dev-relay.mjs',
+      cwd: ROOT,
+      url: 'http://localhost:8787',
+      reuseExistingServer: false,
+      timeout: 30_000,
+    },
+    {
+      // A build that syncs rooms through the local relay instead of Supabase.
+      command:
+        'pnpm --filter @promptalong/web build:e2e && pnpm --filter @promptalong/web preview:e2e',
+      cwd: ROOT,
+      url: `http://localhost:${PORT}`,
+      reuseExistingServer: false,
+      timeout: 180_000,
+    },
+  ],
 });
