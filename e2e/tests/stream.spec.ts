@@ -96,7 +96,8 @@ test.describe('send and shared stream', () => {
     try {
       const code = await createRoom(aarav);
       await joinRoom(kabir, code);
-      await writePrompt(aarav, 'Three slide titles and speaker notes');
+      // '/slow' keeps the answer streaming long enough for the Stop click on every browser
+      await writePrompt(aarav, '/slow Three slide titles and speaker notes');
       await aarav.page.keyboard.press('Control+Enter'); // keyboard Send
       await expect(lastTurn(kabir)).toHaveAttribute('data-status', 'streaming');
       await expect.poll(() => lastAnswer(kabir)).not.toBe('');
@@ -163,7 +164,7 @@ test.describe('send and shared stream', () => {
     try {
       const code = await createRoom(aarav);
       await joinRoom(meera, code);
-      await writePrompt(aarav, 'A sharper version of the closing line');
+      await writePrompt(aarav, '/slow A sharper version of the closing line');
       await aarav.page.getByTestId('send-button').click();
       await expect.poll(() => lastAnswer(meera)).not.toBe('');
       await aarav.page.close();
