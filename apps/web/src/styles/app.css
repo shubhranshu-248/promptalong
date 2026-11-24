@@ -1,0 +1,30 @@
+@import 'tailwindcss';
+@import '@promptalong/ui/tokens.css';
+@import '@promptalong/config/tailwind/preset.css';
+@import '@promptalong/ui/base.css' layer(base);
+
+@source '../../../../packages/ui/src';
+
+/* Self-hosted fonts (SIL OFL 1.1), Latin subset only. */
+@import '@fontsource/inter/latin-400.css';
+@import '@fontsource/inter/latin-500.css';
+@import '@fontsource/inter/latin-600.css';
+@import '@fontsource/inter/latin-700.css';
+@import '@fontsource/space-grotesk/latin-500.css';
+@import '@fontsource/space-grotesk/latin-600.css';
+@import '@fontsource/space-grotesk/latin-700.css';
+@import '@fontsource/jetbrains-mono/latin-400.css';
+@import '@fontsource/jetbrains-mono/latin-500.css';
+
+@utility caret-blink {
+  animation: caret-blink 1060ms steps(1) infinite;
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+}
+
+@keyframes caret-blink {
+  50% {
+    opacity: 0;
+  }
+}
