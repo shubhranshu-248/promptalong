@@ -6,7 +6,7 @@ import { useState, type ReactNode } from 'react';
 const overlay =
   'fixed inset-0 z-[50] grid place-items-center bg-[rgba(17,18,24,.45)] p-6 max-md:place-items-end max-md:p-0';
 const panel =
-  'flex max-h-[calc(100vh-48px)] w-[min(520px,100%)] flex-col overflow-hidden rounded-xl bg-surface shadow-lg ' +
+  'flex max-h-[calc(100vh-48px)] flex-col overflow-hidden rounded-xl bg-surface shadow-lg ' +
   'max-md:max-h-[92vh] max-md:w-full max-md:rounded-b-none';
 
 export function DialogShell({
@@ -15,19 +15,25 @@ export function DialogShell({
   title,
   description,
   children,
+  wide,
+  footer,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   title: string;
   description?: string;
   children: ReactNode;
+  /** 640 px instead of 520 px */
+  wide?: boolean;
+  /** fixed action bar under the scrolling content */
+  footer?: ReactNode;
 }) {
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className={overlay}>
           <Dialog.Content
-            className={panel}
+            className={cx(panel, wide ? 'w-[min(640px,100%)]' : 'w-[min(520px,100%)]')}
             {...(description ? {} : { 'aria-describedby': undefined })}
           >
             <header className="flex items-center gap-3 border-b border-border px-6 py-5 max-md:px-4">
@@ -46,6 +52,11 @@ export function DialogShell({
               ) : null}
               {children}
             </div>
+            {footer ? (
+              <footer className="flex flex-wrap justify-end gap-2.5 border-t border-border px-6 py-4 max-md:px-4">
+                {footer}
+              </footer>
+            ) : null}
           </Dialog.Content>
         </Dialog.Overlay>
       </Dialog.Portal>

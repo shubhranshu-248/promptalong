@@ -1,4 +1,12 @@
-import { MemoryHub, readSettings } from '@promptalong/core';
+import {
+  MemoryHub,
+  promptFragment,
+  promptText,
+  readSettings,
+  setRoomModel,
+} from '@promptalong/core';
+import type * as Y from 'yjs';
+import { sendPrompt } from './send';
 import { RoomSession } from './session';
 
 const sessions: RoomSession[] = [];
@@ -78,5 +86,48 @@ describe('RoomSession', () => {
     await new Promise((r) => setTimeout(r, 200));
     expect(eight.every((s) => !s.getSnapshot().full)).toBe(true);
     await waitFor(() => eight.every((s) => s.getSnapshot().people.length === 8));
+  });
+
+  it('one Send: both people get the same answer, the prompt is cleared, "sending" is shown', async () => {
+    const hub = new MemoryHub();
+    const a = open(hub, 'aaaa1111', 'Aarav', 1, true);
+    const b = open(hub, 'bbbb2222', 'Meera', 2);
+    await waitFor(() => b.getSnapshot().settings !== null && b.getSnapshot().people.length === 2);
+    const text = (promptFragment(a.doc).get(0) as Y.XmlElement).get(0) as Y.XmlText;
+    text.insert(0, '/short Make it 2 minutes');
+    await waitFor(() => promptText(b.doc) === '/short Make it 2 minutes');
+    const res = await sendPrompt(a);
+    expect(res.ok).toBe(true);
+    await waitFor(() =>
+      b.getSnapshot().people.some((p) => p.pid === 'aaaa1111' && p.activity === 'sending'),
+    );
+    await waitFor(() => b.getSnapshot().turns[0]?.status === 'done');
+    const [ta, tb] = [a.getSnapshot().turns[0], b.getSnapshot().turns[0]];
+    expect(tb?.answer).toBe(ta?.answer);
+    expect(tb?.answer).toMatch(/^Short answer to "Make it 2 minutes": done\.$/u);
+    expect(tb?.provider.label).toBe('Demo model');
+    expect(tb?.requestHash).toMatch(/^[0-9a-f]{64}$/u);
+    expect(promptText(a.doc)).toBe('');
+    await waitFor(() => promptText(b.doc) === '' && b.getSnapshot().lock === null);
+  });
+
+  it('the room model is shared, never with a key', async () => {
+    const hub = new MemoryHub();
+    const a = open(hub, 'aaaa1111', 'Aarav', 1, true);
+    const b = open(hub, 'bbbb2222', 'Meera', 2);
+    await waitFor(() => b.getSnapshot().settings !== null);
+    setRoomModel(a.doc, {
+      kind: 'byok',
+      endpoint: 'groq',
+      model: 'llama-3.1-8b-instant',
+      setBy: 'aaaa1111',
+    });
+    await waitFor(() => b.getSnapshot().model.kind === 'byok');
+    expect(b.getSnapshot().model).toEqual({
+      kind: 'byok',
+      endpoint: 'groq',
+      model: 'llama-3.1-8b-instant',
+      setBy: 'aaaa1111',
+    });
   });
 });

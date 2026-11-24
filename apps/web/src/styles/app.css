@@ -86,3 +86,37 @@
 .pa-caret__label::after {
   content: attr(data-name);
 }
+
+/* The streaming answer's caret (every participant sees the same one) */
+.pa-stream-caret {
+  display: inline-block;
+  width: 0.5em;
+  height: 1.1em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: var(--c-stream-caret);
+  animation: pa-blink 1s steps(1) infinite;
+}
+@keyframes pa-blink {
+  50% {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pa-stream-caret {
+    animation: none;
+  }
+}
+
+.pa-progress {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--c-surface-2);
+  overflow: hidden;
+}
+.pa-progress > i {
+  display: block;
+  height: 100%;
+  background: var(--c-accent);
+  transition: width 150ms linear;
+}

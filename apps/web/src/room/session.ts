@@ -1,6 +1,10 @@
 import {
   RoomSync,
+  StreamCoordinator,
   chooseSlot,
+  listTurns,
+  readLock,
+  readRoomModel,
   initRoom,
   isOverCapacity,
   peopleMap,
@@ -9,14 +13,17 @@ import {
   type PresentPerson,
   type RoomSettings,
   type SendPolicy,
+  type LockHolder,
   type SyncState,
   type Transport,
+  type TurnView,
 } from '@promptalong/core';
+import { readModelChoice, type RoomModelChoice } from '@promptalong/providers';
 import { presenceHex } from '@promptalong/ui';
 import { Awareness } from 'y-protocols/awareness';
 import * as Y from 'yjs';
 
-export type Activity = 'typing' | 'selecting' | 'idle';
+export type Activity = 'typing' | 'selecting' | 'idle' | 'sending';
 
 /** What each person publishes about themselves (awareness field "user"). */
 export interface AwarenessUser {
@@ -44,6 +51,10 @@ export interface RoomSnapshot {
   people: PersonView[];
   me: AwarenessUser;
   full: boolean;
+  turns: TurnView[];
+  /** who holds Send (null = free) */
+  lock: LockHolder | null;
+  model: RoomModelChoice;
 }
 
 export interface CreateOptions {
@@ -65,6 +76,8 @@ export interface RoomSessionDeps {
   persist?: (doc: Y.Doc) => LocalStore;
   create?: CreateOptions;
   now?: () => number;
+  /** shared-stream timings (tests make them short) */
+  stream?: { claimMs?: number; beatMs?: number; staleMs?: number; flushMs?: number };
 }
 
 /**
@@ -75,6 +88,7 @@ export class RoomSession {
   readonly doc = new Y.Doc();
   readonly awareness: Awareness;
   readonly sync: RoomSync;
+  readonly stream: StreamCoordinator;
   readonly code: string;
   private readonly deps: RoomSessionDeps;
   private store: LocalStore | null = null;
@@ -90,6 +104,15 @@ export class RoomSession {
     this.code = deps.code;
     this.awareness = new Awareness(this.doc);
     this.sync = new RoomSync(this.doc, this.awareness, deps.transport);
+    this.stream = new StreamCoordinator(this.doc, {
+      pid: deps.pid,
+      session: this.sync.id,
+      name: () => this.snapshot.me.name,
+      peers: () => this.others().length,
+      online: () => this.sync.state === 'synced' || this.sync.state === 'alone',
+      ...(deps.now ? { now: deps.now } : {}),
+      ...deps.stream,
+    });
     const now = deps.now ?? Date.now;
     const remembered = peopleMap(this.doc).get(deps.pid);
     const slot = remembered?.slot ?? 0;
@@ -107,6 +130,9 @@ export class RoomSession {
       people: [],
       me,
       full: false,
+      turns: [],
+      lock: null,
+      model: readModelChoice(undefined),
     };
   }
 
@@ -129,6 +155,8 @@ export class RoomSession {
     this.reconcileSlot();
     this.awareness.on('change', this.onAwareness);
     this.doc.getMap('settings').observe(this.onSettings);
+    this.doc.getMap('turns').observeDeep(this.onTurns);
+    this.doc.getMap('lock').observe(this.onSettings);
     this.sync.onState(this.onSyncState);
     this.sync.connect();
     this.refresh();
@@ -140,6 +168,10 @@ export class RoomSession {
     if (this.typingTimer) clearTimeout(this.typingTimer);
     this.awareness.off('change', this.onAwareness);
     this.doc.getMap('settings').unobserve(this.onSettings);
+    this.doc.getMap('turns').unobserveDeep(this.onTurns);
+    this.doc.getMap('lock').unobserve(this.onSettings);
+    // Before sync stops: an answer this page is streaming is closed as "interrupted" and sent.
+    this.stream.destroy();
     this.sync.destroy();
     this.awareness.destroy();
     void this.store?.destroy();
@@ -194,7 +226,22 @@ export class RoomSession {
     this.refresh();
   };
 
+  private turnsQueued = false;
+
+  /** Answers grow many times a second: refresh at most once per frame. */
+  private readonly onTurns = () => {
+    if (this.turnsQueued) return;
+    this.turnsQueued = true;
+    const run = () => {
+      this.turnsQueued = false;
+      this.refresh();
+    };
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(run);
+    else setTimeout(run, 16);
+  };
+
   private readonly onSyncState = (state: SyncState) => {
+    if (state === 'synced' || state === 'alone') this.stream.resetStaleClock();
     this.reconcileSlot();
     this.refresh();
     if (state === 'offline') this.update({ state });
@@ -253,14 +300,21 @@ export class RoomSession {
     const full =
       this.snapshot.full ||
       (state !== 'connecting' && state !== 'offline' && isOverCapacity(me, others));
+    const lock = readLock(this.doc);
     const people: PersonView[] = [
       { ...me, me: true, activity: this.activity, host: false },
       ...others,
     ]
       .sort((a, b) => a.joinedAt - b.joinedAt || (a.pid < b.pid ? -1 : 1))
-      .map((p) => ({ ...p, host: settings?.hostPid === p.pid }));
+      .map((p) => ({
+        ...p,
+        host: settings?.hostPid === p.pid,
+        ...(lock?.pid === p.pid ? { activity: 'sending' as const } : {}),
+      }));
     const wasFull = this.snapshot.full;
-    this.update({ state, settings, people, full });
+    const turns = listTurns(this.doc);
+    const model = readModelChoice(readRoomModel(this.doc));
+    this.update({ state, settings, people, full, turns, lock, model });
     if (full && !wasFull) this.leaveBecauseFull();
   }
 

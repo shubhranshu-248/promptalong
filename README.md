@@ -15,9 +15,11 @@ Student teams, hackathon teams and study groups usually work on separate machine
 accounts, copy-pasting prompts and answers back and forth. PromptAlong gives them one shared
 prompt, one shared answer and one shared history.
 
-> Status: early development. Rooms and live co-writing work (shared prompt, live cursors, offline
-> editing that syncs back). Sending the prompt to a model and streaming the answer come next.
-> Rooms are not private yet: anyone with a room code can join it.
+> Status: early development. Rooms, live co-writing (shared prompt, live cursors, offline editing
+> that syncs back) and the shared answer work: anyone presses Send and everyone watches the same
+> answer stream in, from the demo model, your own key, a model in your browser or Ollama.
+> Authorship, branches and the context panel come next. Rooms are not private yet: anyone with a
+> room code can join it.
 
 ## What makes it different
 
