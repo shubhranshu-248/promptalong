@@ -97,9 +97,18 @@ interface Provider {
 
 A person's key is stored only in their own browser (IndexedDB, encrypted at rest with a
 non-extractable key), never in the room document, the database, URLs, logs or exports. The
-room only records `{ kind, model }`. Only the sender's browser calls the model; answer chunks
-are broadcast to the room as plain text every ~150 ms, so everyone sees one stream without
-anyone sharing a key.
+room only records `{ kind, model, endpoint, setBy }`. Only the sender's browser calls the model;
+it appends the answer to the turn's shared text every ~150 ms, so everyone sees one stream (and
+late joiners the answer so far) without anyone sharing a key.
+
+### One stream at a time
+
+- A send lock in the room document (sender, turn, heartbeat every 2 s). Others treat it as gone
+  after 10 s without a heartbeat and mark the turn interrupted; a sender who closes the page does
+  that at once.
+- With others online the sender waits ~300 ms after taking the lock and only calls the model if
+  the lock is still theirs, so two Sends at the same moment never both reach a model.
+- Anyone can press Stop: the sender's browser cancels the request and the answer so far is kept.
 
 ## Provenance and the conversation tree
 
