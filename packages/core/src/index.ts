@@ -7,3 +7,5 @@ export {
   formatRoomCode,
 } from './room-code';
 export { DISPLAY_NAME_MAX, cleanDisplayName } from './display-name';
+export * from './room/index';
+export * from './sync/index';
