@@ -246,6 +246,27 @@ describe('shared stream', () => {
     m.release();
   });
 
+  it('letters a co-writer types during the claim window are sent, not cleared away', async () => {
+    const { peers } = await room(2);
+    const [a, b] = peers;
+    if (!a || !b) return;
+    const textOf = (p: Peer) => (promptFragment(p.doc).get(0) as Y.XmlElement).get(0) as Y.XmlText;
+    textOf(b).insert(0, 'Make it 2 minutes');
+    await until(() => promptText(a.doc) === 'Make it 2 minutes');
+    const m = model(['ok']);
+    // A clicks Send with the text it has now; B keeps typing while A waits for its claim.
+    const sending = a.co.send(request(m.stream, promptText(a.doc)));
+    textOf(b).insert(textOf(b).length, ' and end with one clear ask');
+    await until(() => promptText(a.doc).endsWith('ask'));
+    expect((await sending).ok).toBe(true);
+    await until(() => peers.every((p) => listTurns(p.doc)[0]?.status === 'done'));
+    const sent = listTurns(b.doc)[0]?.prompt.text ?? '';
+    // every letter is either in the sent prompt or still in the editor - none is lost
+    expect(sent + promptText(b.doc)).toBe('Make it 2 minutes and end with one clear ask');
+    expect(m.seen[0]?.body).toContain(sent);
+    expect(listTurns(b.doc)[0]?.requestHash).toBe(await sha256Hex(m.seen[0]?.body ?? ''));
+  });
+
   it('an empty prompt is not sent', async () => {
     const { peers } = await room(1);
     expect(await peers[0]?.co.send(request(model([]).stream, '   '))).toMatchObject({

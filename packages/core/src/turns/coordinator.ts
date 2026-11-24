@@ -1,5 +1,5 @@
 import type * as Y from 'yjs';
-import { clearPrompt } from '../room/doc';
+import { clearPrompt, promptText as readPromptText } from '../room/doc';
 import {
   LOCK_FIELD,
   addTurn,
@@ -161,16 +161,12 @@ export class StreamCoordinator {
       return after ? { ok: false, reason: 'lost', holder: after } : { ok: false, reason: 'lost' };
     }
 
-    const messages = [
-      ...historyMessages(this.doc),
-      { role: 'user' as const, content: req.promptText },
-    ];
+    // A normal Send freezes the prompt as it is now, not as it was at the click: letters a
+    // co-writer typed during the claim window belong to this turn. Reading, adding the turn and
+    // clearing run with no await in between, so nothing can arrive that is cleared but not sent.
+    const sentText = (req.clearPrompt && readPromptText(this.doc).trim()) || req.promptText;
+    const messages = [...historyMessages(this.doc), { role: 'user' as const, content: sentText }];
     const body = req.buildBody(messages);
-    const requestHash = await sha256Hex(body);
-    if (this.isDestroyed()) {
-      this.active = null;
-      return { ok: false, reason: 'lost' };
-    }
     const started = this.o.now();
     let answer!: Y.Text;
     this.doc.transact(() => {
@@ -179,13 +175,19 @@ export class StreamCoordinator {
         createdAt: started,
         sentBy: this.o.pid,
         senderName: this.o.name(),
-        promptText: req.promptText,
+        promptText: sentText,
         provider: req.provider,
-        requestHash,
+        requestHash: '',
       });
       lockMap(this.doc).set('current', { ...claim, turnId, beat: 1 });
       if (req.clearPrompt) clearPrompt(this.doc);
     });
+    const requestHash = await sha256Hex(body);
+    if (this.isDestroyed()) {
+      this.active = null;
+      return { ok: false, reason: 'lost' };
+    }
+    turnsMap(this.doc).get(turnId)?.set('requestHash', requestHash);
     this.beat();
     const turn = turnsMap(this.doc).get(turnId);
     const onTurn = () => {
