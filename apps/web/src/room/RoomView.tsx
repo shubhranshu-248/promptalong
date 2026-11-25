@@ -1106,7 +1106,7 @@ export function RoomView({
       {switchNotice ? (
         <div
           role="status"
-          className="fixed bottom-6 left-1/2 z-40 flex -translate-x-1/2 items-center gap-3 rounded-lg bg-text px-4 py-3 text-sm text-bg shadow-lg max-md:inset-x-3 max-md:bottom-[200px] max-md:translate-x-0 max-md:justify-between"
+          className="fixed bottom-6 left-1/2 z-40 flex -translate-x-1/2 items-center gap-3 rounded-lg bg-text px-4 py-3 text-sm text-bg shadow-lg max-md:inset-x-3 max-md:top-[64px] max-md:bottom-auto max-md:translate-x-0 max-md:justify-between"
           data-testid="switch-notice"
         >
           <span>
@@ -1122,6 +1122,16 @@ export function RoomView({
             }}
           >
             Back to {branchName(switchNotice.from)}
+          </button>
+          <button
+            type="button"
+            aria-label="Dismiss"
+            className="-mr-1 px-1.5 font-semibold"
+            onClick={() => {
+              setSwitchNotice(null);
+            }}
+          >
+            ✕
           </button>
         </div>
       ) : null}
