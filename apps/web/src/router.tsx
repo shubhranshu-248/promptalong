@@ -19,12 +19,12 @@ export const routes: RouteObject[] = [
   {
     path: '/demo',
     HydrateFallback: Loading,
-    lazy: async () => ({ Component: (await import('./routes/Placeholder')).Demo }),
+    lazy: async () => ({ Component: (await import('./demo/DemoPage')).DemoPage }),
   },
   {
     path: '/about',
     HydrateFallback: Loading,
-    lazy: async () => ({ Component: (await import('./routes/Placeholder')).About }),
+    lazy: async () => ({ Component: (await import('./routes/About')).About }),
   },
   { path: '*', element: <NotFound /> },
 ];

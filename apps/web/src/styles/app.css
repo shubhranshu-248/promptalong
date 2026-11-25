@@ -56,11 +56,7 @@
   color: var(--c-text-muted);
   pointer-events: none;
 }
-@media (max-width: 767px) {
-  .pa-editor {
-    min-height: 120px;
-  }
-}
+/* three lines fit before the box grows (a growing box pushes the answers above it) */
 
 /* Remote cursors: colour + name label (never only colour) */
 .pa-caret {
@@ -119,4 +115,16 @@
   height: 100%;
   background: var(--c-accent);
   transition: width 150ms linear;
+}
+
+/* Tables in model answers */
+.answer-table th,
+.answer-table td {
+  border: 1px solid var(--c-border);
+  padding: 6px 10px;
+  vertical-align: top;
+}
+.answer-table th {
+  background: var(--c-surface-2);
+  font-weight: 600;
 }

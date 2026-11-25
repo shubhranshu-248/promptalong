@@ -23,7 +23,8 @@ prompt, one shared answer and one shared history.
 > Everyone can attach notes, snippets and text files as context; the panel shows the exact
 > request body before it is sent, with a live token budget. Rooms are saved on the server, so a
 > room opens with its content even when nobody else is online; the host can lock a room, remove
-> people or delete it; any branch exports to Markdown or JSON.
+> people or delete it; any branch exports to Markdown or JSON. The live demo (`/demo`) shows all
+> of it with three scripted teammates, entirely in your browser.
 
 ## What makes it different
 
@@ -89,6 +90,8 @@ private Realtime channel per room. Setting one up, locally or hosted, is describ
 Your model key never leaves your browser: it is not synced to other people, not sent to any
 PromptAlong server, and not logged. Only your browser talks to the model provider you choose.
 No table in the database has a column for a key.
+
+The live demo runs entirely in your browser: nothing in it is sent anywhere or saved.
 
 Anyone with a room's code can join it until the host locks it. People in a room can read
 everything in it, so do not paste secrets into a shared prompt.

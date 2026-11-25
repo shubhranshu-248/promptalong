@@ -56,10 +56,12 @@ test.describe('send and shared stream', () => {
       const code = await createRoom(aarav);
       await joinRoom(meera, code);
       await joinRoom(kabir, code);
-      await writePrompt(meera, 'Make it 2 minutes and end with one clear ask');
+      // (a prompt whose demo answer is plain prose: answers render as Markdown, and a table or a
+      // list reads differently once formatted, which this growth check would mistake for a reorder)
+      await writePrompt(meera, 'Make it 2 minutes and end with one clear ask for the judges');
       await expect
         .poll(() => promptText(aarav))
-        .toBe('Make it 2 minutes and end with one clear ask');
+        .toBe('Make it 2 minutes and end with one clear ask for the judges');
 
       const watchers = [meera, kabir].map(recordGrowth);
       await aarav.page.getByTestId('send-button').click();
@@ -81,7 +83,7 @@ test.describe('send and shared stream', () => {
       }
       // the prompt is frozen into the turn and cleared for everyone
       await expect(meera.page.getByTestId('turn-prompt')).toHaveText(
-        'Make it 2 minutes and end with one clear ask',
+        'Make it 2 minutes and end with one clear ask for the judges',
       );
       for (const p of people) await expect.poll(() => promptText(p)).toBe('');
       for (const p of people) await expect(p.page.getByTestId('send-button')).toHaveText('Send');

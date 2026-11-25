@@ -754,7 +754,7 @@ export function ContextPanel({
         <Button
           variant="ghost"
           size="sm"
-          className="max-md:hidden"
+          className={cx('max-md:hidden', wide && 'mr-3')}
           onClick={() => {
             onWide(!wide);
           }}
