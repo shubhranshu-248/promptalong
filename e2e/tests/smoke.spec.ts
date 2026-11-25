@@ -48,3 +48,18 @@ test('self-hosted fonts and icons load from our own origin', async ({ page }) =>
   expect(icon.ok()).toBe(true);
   expect(foreign).toEqual([]);
 });
+
+test('link previews point at an absolute image that exists', async ({ page, request }) => {
+  await page.goto('/');
+  const image = await page.locator('meta[property="og:image"]').getAttribute('content');
+  const url = await page.locator('meta[property="og:url"]').getAttribute('content');
+  expect(image).toMatch(/^https:\/\/[^/]+\/icons\/og-1200x630\.png$/u);
+  expect(url).toMatch(/^https:\/\/[^/]+\/$/u);
+  expect(await page.locator('meta[name="twitter:card"]').getAttribute('content')).toBe(
+    'summary_large_image',
+  );
+  // The same file is served by this build (path only: the absolute host is the public site).
+  const res = await request.get(new URL(image ?? '').pathname);
+  expect(res.status()).toBe(200);
+  expect(res.headers()['content-type']).toContain('image/png');
+});
