@@ -9,6 +9,7 @@ import {
   ProviderError,
   modelLabel,
   scrubSecrets,
+  type Provider,
   type RoomModelChoice,
 } from '@promptalong/providers';
 import { providerFor } from '../models/providers';
@@ -52,10 +53,12 @@ export function sendPrompt(
   session: RoomSession,
   retry?: Retry,
   tokens?: (text: string) => { tokens: number; exact: boolean } | null,
+  /** the model to call instead of the room's one (the demo's scripted people use a fast demo model in tests) */
+  override?: Provider,
 ): Promise<SendResult> {
   const snap = session.getSnapshot();
   const choice = snap.model;
-  const provider = providerFor(choice);
+  const provider = override ?? providerFor(choice);
   const branchId = snap.activeBranch;
   const text = retry?.text ?? promptText(session.doc, branchId).trim();
   return session.stream.send({

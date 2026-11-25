@@ -162,7 +162,8 @@ function RoomMenu({
   lock,
   onDelete,
 }: {
-  onShare: () => void;
+  /** omitted in the demo room (it cannot be joined) */
+  onShare?: (() => void) | undefined;
   onRename: () => void;
   onLeave: () => void;
   onExport: () => void;
@@ -186,9 +187,11 @@ function RoomMenu({
           sideOffset={6}
           className="z-[40] w-[260px] rounded-lg border border-border bg-surface p-1.5 text-text shadow-lg"
         >
-          <Menu.Item className={item} onSelect={onShare}>
-            Share link and code
-          </Menu.Item>
+          {onShare ? (
+            <Menu.Item className={item} onSelect={onShare}>
+              Share link and code
+            </Menu.Item>
+          ) : null}
           <Menu.Item className={item} onSelect={onRename}>
             Change your name
           </Menu.Item>
@@ -236,7 +239,7 @@ function RoomMenu({
   );
 }
 
-function statusLine(s: RoomSnapshot): string {
+function statusLine(s: RoomSnapshot, demo: boolean): string {
   const editing = s.people.filter((p) => p.activity === 'typing').length;
   const who =
     s.people.length > 1
@@ -245,7 +248,7 @@ function statusLine(s: RoomSnapshot): string {
   if (s.state === 'offline') return `${who} · saved on this device · waiting to sync`;
   if (s.state === 'connecting') return `${who} · connecting…`;
   if (!s.savedLocally) return `${who} · loading`;
-  return `${who} · saved`;
+  return demo ? `${who} · demo, not saved` : `${who} · saved`;
 }
 
 function Notice({
@@ -349,7 +352,20 @@ function ModelNotice({
   );
 }
 
-export function RoomView({ session, openShare }: { session: RoomSession; openShare: boolean }) {
+/** The live demo room (/demo): its banner; no sharing, the demo model only, nothing saved. */
+export interface DemoRoom {
+  banner: ReactNode;
+}
+
+export function RoomView({
+  session,
+  openShare,
+  demo,
+}: {
+  session: RoomSession;
+  openShare: boolean;
+  demo?: DemoRoom;
+}) {
   const snap = useRoomSnapshot(session);
   const navigate = useNavigate();
   const [shareOpen, setShareOpen] = useState(openShare);
@@ -436,10 +452,19 @@ export function RoomView({ session, openShare }: { session: RoomSession; openSha
     tokensFor.current = context.tokensFor;
   }, [context.tokensFor]);
 
-  const openModel = (focus?: ProviderKind) => {
-    setModelFocus(focus);
-    setModelOpen(true);
-  };
+  const openModel = useCallback(
+    (focus?: ProviderKind) => {
+      if (demo) {
+        setNotice(
+          'The demo room always uses the demo model. Start your own room to use your own key, an in-browser model or Ollama.',
+        );
+        return;
+      }
+      setModelFocus(focus);
+      setModelOpen(true);
+    },
+    [demo],
+  );
 
   const me = snap.me;
   const host = snap.people.find((p) => p.host);
@@ -497,7 +522,7 @@ export function RoomView({ session, openShare }: { session: RoomSession; openSha
         }
       });
     },
-    [session, keys],
+    [session, keys, openModel],
   );
 
   if (snap.ended) {
@@ -524,6 +549,7 @@ export function RoomView({ session, openShare }: { session: RoomSession; openSha
 
   return (
     <div className="flex h-dvh flex-col">
+      {demo?.banner}
       <header className="flex h-14 flex-none items-center gap-3 border-b border-border bg-surface px-4 max-md:gap-2 max-md:px-3">
         <Link to="/" aria-label="PromptAlong home" className="flex-none">
           <LogoMark size={28} dot="var(--c-text)" />
@@ -536,7 +562,8 @@ export function RoomView({ session, openShare }: { session: RoomSession; openSha
             {title}
           </h1>
           <p className="text-xs text-text-muted md:hidden">
-            {session.code} · {snap.people.length} {snap.people.length === 1 ? 'person' : 'people'}
+            {demo ? 'Demo' : session.code} · {snap.people.length}{' '}
+            {snap.people.length === 1 ? 'person' : 'people'}
           </p>
         </div>
         {snap.activeBranch !== MAIN_BRANCH ? (
@@ -547,18 +574,22 @@ export function RoomView({ session, openShare }: { session: RoomSession; openSha
             {branchName(snap.activeBranch)}
           </span>
         ) : null}
-        <span className="rounded-sm bg-surface-2 px-2 py-[5px] font-mono text-xs leading-none max-md:hidden">
-          {session.code}
-        </span>
-        <Button
-          size="sm"
-          className="max-md:hidden"
-          onClick={() => {
-            setShareOpen(true);
-          }}
-        >
-          Share link
-        </Button>
+        {demo ? null : (
+          <>
+            <span className="rounded-sm bg-surface-2 px-2 py-[5px] font-mono text-xs leading-none max-md:hidden">
+              {session.code}
+            </span>
+            <Button
+              size="sm"
+              className="max-md:hidden"
+              onClick={() => {
+                setShareOpen(true);
+              }}
+            >
+              Share link
+            </Button>
+          </>
+        )}
         <span className="flex-1" />
         <span
           className="flex max-md:hidden [&>*+*]:-ml-1.5"
@@ -600,9 +631,13 @@ export function RoomView({ session, openShare }: { session: RoomSession; openSha
           </span>
         ) : null}
         <RoomMenu
-          onShare={() => {
-            setShareOpen(true);
-          }}
+          onShare={
+            demo
+              ? undefined
+              : () => {
+                  setShareOpen(true);
+                }
+          }
           onRename={() => {
             setRenameOpen(true);
           }}
@@ -630,7 +665,7 @@ export function RoomView({ session, openShare }: { session: RoomSession; openSha
           <span>{accessNotice}</span>
         </Notice>
       ) : null}
-      {snap.state === 'offline' ? (
+      {demo ? null : snap.state === 'offline' ? (
         <Notice tone="warn" testId="offline-banner">
           <span>
             <b>Offline</b> - your edits are saved on this device and will sync when you are back
@@ -867,7 +902,7 @@ export function RoomView({ session, openShare }: { session: RoomSession; openSha
               <b className="text-text">Shared prompt</b>
               {snap.activeBranch !== MAIN_BRANCH
                 ? ` · ${branchName(snap.activeBranch)}`
-                : ''} · {statusLine(snap)}
+                : ''} · {statusLine(snap, demo !== undefined)}
               <button
                 type="button"
                 aria-pressed={showAuthors}

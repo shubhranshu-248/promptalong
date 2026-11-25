@@ -30,9 +30,10 @@ test('client-side navigation and unknown routes', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('link', { name: 'Try the live demo' }).click();
   await expect(page).toHaveURL(/\/demo$/u);
-  await expect(page.getByRole('heading', { name: 'Live demo' })).toBeVisible();
+  await expect(page.getByTestId('demo-banner')).toContainText('Live demo');
+  await expect(page.getByTestId('room-title')).toHaveText('Demo: Hackathon pitch');
   await page.goto('/does-not-exist');
-  await expect(page.getByRole('heading', { name: 'Page not found' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'This page wandered off' })).toBeVisible();
 });
 
 test('self-hosted fonts and icons load from our own origin', async ({ page }) => {

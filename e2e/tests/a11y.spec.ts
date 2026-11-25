@@ -1,7 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
 
-const PAGES = ['/', '/new', '/demo', '/r/K7QM2X', '/r/K7QM2X?named'];
+const PAGES = ['/', '/new', '/demo', '/about', '/nowhere', '/r/K7QM2X', '/r/K7QM2X?named'];
 const VIEWPORTS = [
   { name: 'desktop', width: 1440, height: 900 },
   { name: 'mobile', width: 390, height: 844 },

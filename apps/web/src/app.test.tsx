@@ -46,7 +46,7 @@ describe('routes', () => {
 
   it('unknown paths show not found', () => {
     renderAt('/nowhere');
-    expect(screen.getByRole('heading', { name: 'Page not found' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'This page wandered off' })).toBeInTheDocument();
   });
 });
 
