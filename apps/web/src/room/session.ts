@@ -184,6 +184,8 @@ export class RoomSession {
   private unsaved = 0;
   private saving = false;
   private lastBeat = 0;
+  /** a check asked for within a second of the last one, made when that second is over */
+  private beatLater: ReturnType<typeof setTimeout> | null = null;
   /** removed people already taken out of the people list */
   private readonly dropped = new Set<string>();
 
@@ -315,6 +317,7 @@ export class RoomSession {
     this.doc.getMap('access').unobserve(this.onAccess);
     this.doc.off('update', this.onDocUpdate);
     if (this.heartbeat) clearInterval(this.heartbeat);
+    if (this.beatLater) clearTimeout(this.beatLater);
     if (this.saveQuiet) clearTimeout(this.saveQuiet);
     if (this.saveLatest) clearTimeout(this.saveLatest);
     // Before sync stops: an answer this page is streaming is closed as "interrupted" and sent.
@@ -455,7 +458,16 @@ export class RoomSession {
     const access = this.managed;
     if (!access || this.stopped || this.snapshot.ended) return;
     const now = Date.now();
-    if (now - this.lastBeat < 1000) return; // several triggers at once: one question is enough
+    const wait = this.lastBeat + 1000 - now;
+    if (wait > 0) {
+      // several triggers at once: one question is enough - but it is asked, a second later (a
+      // removal right after joining must not wait for the next heartbeat)
+      this.beatLater ??= setTimeout(() => {
+        this.beatLater = null;
+        void this.beat();
+      }, wait);
+      return;
+    }
     this.lastBeat = now;
     const res = await access.backend.touch(access.room.id);
     if (this.isStopped()) return;
@@ -480,7 +492,8 @@ export class RoomSession {
   private end(reason: 'removed' | 'deleted'): void {
     if (this.snapshot.ended) return;
     if (this.heartbeat) clearInterval(this.heartbeat);
-    this.heartbeat = null;
+    if (this.beatLater) clearTimeout(this.beatLater);
+    this.heartbeat = this.beatLater = null;
     this.update({ ended: reason });
     this.sync.destroy();
   }

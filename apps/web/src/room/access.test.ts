@@ -25,6 +25,7 @@ async function open(
   name: string,
   at: number,
   create = false,
+  timings: Partial<typeof TIMINGS> = {},
 ): Promise<{ session: RoomSession; room: RoomInfo }> {
   const backend = world.backendFor(uid);
   const res = create
@@ -36,7 +37,7 @@ async function open(
     pid: uid,
     name,
     transport: backend.transport(),
-    access: { backend, room: res.room, slot: res.slot, ...TIMINGS },
+    access: { backend, room: res.room, slot: res.slot, ...TIMINGS, ...timings },
     now: () => at,
     ...(create ? { create: { name: 'Hackathon pitch', sendPolicy: 'everyone' as const } } : {}),
   });
@@ -131,6 +132,17 @@ describe('rooms with a server', () => {
     type(a.session.doc, 'after the removal');
     await until(() => promptText(b.session.doc) === 'after the removal');
     expect(promptText(c.session.doc)).toBe('');
+  });
+
+  it('removed right after joining: noticed within a second, not at the next heartbeat', async () => {
+    const world = new MemoryServer(new MemoryHub());
+    const slow = { heartbeatMs: 60_000 };
+    const a = await open(world, 'aarav', 'Aarav', 1, true, slow);
+    const b = await open(world, 'meera', 'Meera', 2, false, slow);
+    await until(() => a.session.getSnapshot().people.length === 2);
+    // Meera's first heartbeat was a moment ago: the check the removal mark asks for comes later
+    expect((await a.session.removePerson('meera')).ok).toBe(true);
+    await until(() => b.session.getSnapshot().ended === 'removed', 2500);
   });
 
   it('make host: the new host can lock, the old one cannot', async () => {
