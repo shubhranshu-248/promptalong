@@ -189,6 +189,33 @@ Any branch exports as Markdown (readable) or JSON (prompt segments with authors,
 request hash, the branch tree), with or without context and author names. It is built in the
 browser from the room document, which never holds a model key.
 
+## Live demo
+
+`/demo` opens a room that exists only in the page (`apps/web/src/demo`). Three scripted teammates
+and the visitor are each a full room session on an in-page channel (the same `MemoryHub` the unit
+tests use), so the demo runs the real sync, authorship, context, branch and stream code - but no
+server, no relay and no model account are involved, and nothing is saved. The teammates type into
+the shared prompt letter by letter (word by word with reduced motion) with their own author marks
+and carets, add and exclude context, start a branch and press Send with the demo model; turn 3 is
+left in the prompt for the visitor. The room's model cannot be changed in the demo, so no key
+stored in the visitor's browser can be used by a scripted person. Replay starts an empty room.
+
+## Answers
+
+Answers are shown as formatted text by a small Markdown reader (`apps/web/src/room/markdown.ts`):
+paragraphs, headings, lists, quotes, code, tables, bold / italic / inline code and http(s) links.
+It builds React elements, never HTML strings, so nothing in an answer can add markup or scripts,
+and it reads half-written input while an answer streams (an unclosed `**` stays text until the
+rest arrives; a table appears once its separator row has).
+
+## Security headers
+
+`apps/web/vercel.json` sends a Content-Security-Policy (scripts only from the site itself, plus
+WebAssembly for the in-browser model; connections only to Supabase, the four key providers,
+Ollama on localhost and the in-browser model's download hosts; no framing, no plugins),
+`X-Frame-Options`, `nosniff`, a strict referrer policy, HSTS and a same-origin opener policy.
+`vite preview` sends the same headers, so every end-to-end test runs under the production policy.
+
 ## Quality gates
 
 Every pull request runs: no-trace check, licence allow-list, ESLint, Prettier, TypeScript, Vitest,
