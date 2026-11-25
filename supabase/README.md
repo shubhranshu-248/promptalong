@@ -1,9 +1,11 @@
 # supabase/
 
-Database migrations, row-level security policies and seed data for the free Supabase project.
+- `migrations/` - SQL migrations, applied in order: tables with row-level security, the SQL
+  functions every write goes through, the private Realtime channel policies, the clean-up job.
+- `config.jsonc` - the local stack (`npx supabase start`): anonymous sign-ins on.
 
-- `migrations/` - SQL migrations, applied in order. Empty until the persistence phase.
-- Every table has RLS enabled. No table has a column for model keys.
+Every table has RLS enabled. No table has a column for model keys. The rules are tested by
+`pnpm --filter @promptalong/db test` on an in-process Postgres.
 
-The tables planned so far (rooms, room_members, room_snapshots, rate limits) are described in
-[docs/architecture.md](../docs/architecture.md).
+How to set up a local stack or a hosted project: [docs/runbooks/database.md](../docs/runbooks/database.md).
+The design: [docs/architecture.md](../docs/architecture.md).
