@@ -895,7 +895,9 @@ export function RoomView({
             )}
           >
             <p
-              className="mb-2 text-xs text-text-muted"
+              // two lines kept free below 1024 px: the line grows as people join and start typing,
+              // and the prompt box must not jump when it wraps
+              className="mb-2 text-xs text-text-muted max-lg:min-h-[2lh]"
               aria-live="polite"
               data-testid="sync-status"
             >
