@@ -172,8 +172,18 @@ test.describe('room access', () => {
       });
       await write(aarav, 'Next prompt, not sent yet');
       // closing the tab saves what is not saved yet (closing the whole browser context skips the
-      // page's "pagehide" in Chromium, so the tab is closed first, as a person would)
+      // page's "pagehide" in Chromium, so the tab is closed first, as a person would). A real
+      // browser lets a closed tab's keepalive request finish; closing the test context right away
+      // would cut it off (seen against the hosted project, where the request takes longer), so
+      // the test waits for it - or two seconds at most - before closing the context.
+      const left = aarav.context
+        .waitForEvent('requestfinished', {
+          predicate: (r) => r.url().includes('leave_room'),
+          timeout: 2_000,
+        })
+        .catch(() => null);
       await aarav.page.close();
+      await left;
     } finally {
       await closeAll([aarav]);
     }
