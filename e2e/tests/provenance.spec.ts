@@ -10,9 +10,19 @@ import {
   type Person,
 } from './helpers';
 
-/** The participant id lives in localStorage in every realtime mode (the session hook is relay-only). */
+/**
+ * The participant id from localStorage (the session hook is relay-only): the browser id with the
+ * relay, the signed-in user's id with Supabase (kept in the saved sign-in).
+ */
 async function pidOf(p: Person): Promise<string> {
-  const pid = await p.page.evaluate(() => localStorage.getItem('promptalong:pid') ?? '');
+  const pid = await p.page.evaluate(() => {
+    const auth = localStorage.getItem('promptalong:auth');
+    if (auth) {
+      const id = (JSON.parse(auth) as { user?: { id?: unknown } }).user?.id;
+      if (typeof id === 'string') return id;
+    }
+    return localStorage.getItem('promptalong:pid') ?? '';
+  });
   expect(pid).not.toBe('');
   return pid;
 }
