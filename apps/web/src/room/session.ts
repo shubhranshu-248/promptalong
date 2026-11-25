@@ -20,10 +20,19 @@ import {
   readLock,
   readRoomModel,
   initRoom,
+  isMarkedDeleted,
+  isMarkedRemoved,
   isOverCapacity,
+  lockedBy,
+  markDeleted,
+  markRemoved,
+  readLocked,
+  writeHost,
+  writeLocked,
   peopleMap,
   readSettings,
   readSystemLine,
+  removedPeople,
   upsertPerson,
   type PresentPerson,
   type RoomSettings,
@@ -35,8 +44,9 @@ import {
 } from '@promptalong/core';
 import { readModelChoice, type RoomModelChoice } from '@promptalong/providers';
 import { presenceHex } from '@promptalong/ui';
-import { Awareness } from 'y-protocols/awareness';
+import { Awareness, removeAwarenessStates } from 'y-protocols/awareness';
 import * as Y from 'yjs';
+import type { ActionResult, RoomBackend, RoomInfo } from '../backend/types';
 
 export type Activity = 'typing' | 'selecting' | 'idle' | 'sending';
 
@@ -86,6 +96,14 @@ export interface RoomSnapshot {
   context: ContextItemView[];
   /** the room line sent before everything else ('' = none) */
   systemLine: string;
+  /** new people cannot join (people who already have a seat can come back) */
+  locked: boolean;
+  /** who locked or unlocked it last */
+  lockedBy: string | null;
+  /** the room has a server: it can be locked, people can be removed, it is saved for later */
+  managed: boolean;
+  /** set when this person is out: removed by the host, or the room was deleted */
+  ended: 'removed' | 'deleted' | null;
 }
 
 export interface RosterEntry {
@@ -107,11 +125,32 @@ export interface LocalStore {
   destroy(): unknown;
 }
 
+/** The room on the server, as create_room / join_room answered. */
+export interface RoomAccess {
+  backend: RoomBackend;
+  room: RoomInfo;
+  /** the colour slot the server gave this person (0 = none) */
+  slot: number;
+  /** timings (tests make them short) */
+  heartbeatMs?: number;
+  saveQuietMs?: number;
+  saveMaxWaitMs?: number;
+}
+
+export const HEARTBEAT_MS = 30_000;
+export const SAVE_QUIET_MS = 10_000;
+export const SAVE_MAX_WAIT_MS = 30_000;
+/** A room document larger than this is not sent to the server (the database refuses it). */
+export const SNAPSHOT_MAX_BYTES = 8 * 1024 * 1024;
+const SNAPSHOT_ORIGIN = 'snapshot';
+
 export interface RoomSessionDeps {
   code: string;
   pid: string;
   name: string;
   transport: Transport;
+  /** the server side of the room; omitted for rooms that live on this device only */
+  access?: RoomAccess;
   /** local persistence (y-indexeddb in the app; omitted in tests) */
   persist?: (doc: Y.Doc) => LocalStore;
   create?: CreateOptions;
@@ -138,6 +177,15 @@ export class RoomSession {
   private stopped = false;
   private activity: Activity = 'idle';
   private typingTimer: ReturnType<typeof setTimeout> | null = null;
+  private heartbeat: ReturnType<typeof setInterval> | null = null;
+  private saveQuiet: ReturnType<typeof setTimeout> | null = null;
+  private saveLatest: ReturnType<typeof setTimeout> | null = null;
+  /** changes since the last snapshot the server accepted */
+  private unsaved = 0;
+  private saving = false;
+  private lastBeat = 0;
+  /** removed people already taken out of the people list */
+  private readonly dropped = new Set<string>();
 
   constructor(deps: RoomSessionDeps) {
     this.deps = deps;
@@ -155,7 +203,8 @@ export class RoomSession {
     });
     const now = deps.now ?? Date.now;
     const remembered = peopleMap(this.doc).get(deps.pid);
-    const slot = remembered?.slot ?? 0;
+    const given = deps.access?.slot ?? 0;
+    const slot = given > 0 ? given : (remembered?.slot ?? 0);
     const me: AwarenessUser = {
       pid: deps.pid,
       name: deps.name,
@@ -182,7 +231,15 @@ export class RoomSession {
       merges: [],
       context: [],
       systemLine: '',
+      locked: deps.access?.room.locked ?? false,
+      lockedBy: null,
+      managed: deps.access?.backend.server === true,
+      ended: null,
     };
+  }
+
+  private get managed(): RoomAccess | null {
+    return this.deps.access?.backend.server ? this.deps.access : null;
   }
 
   /** this browser's participant id (the author id on text written here) */
@@ -215,9 +272,32 @@ export class RoomSession {
       this.doc.getMap(name).observe(this.onTurns);
     this.doc.getArray('events').observe(this.onTurns);
     this.doc.getMap('context').observeDeep(this.onSettings);
+    this.doc.getMap('access').observe(this.onAccess);
     this.sync.onState(this.onSyncState);
     this.sync.connect();
+    this.startServerSide(create !== undefined);
     this.refresh();
+  }
+
+  /** Heartbeat, the saved copy on the server and the first snapshot of a new room. */
+  private startServerSide(created: boolean): void {
+    const access = this.managed;
+    if (!access) return;
+    this.doc.on('update', this.onDocUpdate);
+    // First beat at once: it also takes the seat back if an earlier page gave it up while closing.
+    void this.beat();
+    this.heartbeat = setInterval(() => {
+      void this.beat();
+    }, access.heartbeatMs ?? HEARTBEAT_MS);
+    if (created) {
+      // a new room is saved straight away, so it can be opened even if its creator leaves now
+      this.unsaved += 1;
+      void Promise.resolve(this.store?.whenSynced).then(() => this.save());
+    } else {
+      void access.backend.loadSnapshot(access.room.id).then((state) => {
+        if (state && !this.stopped) Y.applyUpdate(this.doc, state, SNAPSHOT_ORIGIN);
+      });
+    }
   }
 
   stop(): void {
@@ -232,8 +312,19 @@ export class RoomSession {
       this.doc.getMap(name).unobserve(this.onTurns);
     this.doc.getArray('events').unobserve(this.onTurns);
     this.doc.getMap('context').unobserveDeep(this.onSettings);
+    this.doc.getMap('access').unobserve(this.onAccess);
+    this.doc.off('update', this.onDocUpdate);
+    if (this.heartbeat) clearInterval(this.heartbeat);
+    if (this.saveQuiet) clearTimeout(this.saveQuiet);
+    if (this.saveLatest) clearTimeout(this.saveLatest);
     // Before sync stops: an answer this page is streaming is closed as "interrupted" and sent.
     this.stream.destroy();
+    const access = this.managed;
+    if (access && !this.snapshot.ended) {
+      // last chance to put this page's changes on the server, then give the seat back
+      if (this.unsaved > 0 && this.isWriter()) void this.sendSnapshot(access);
+      access.backend.leave(access.room.id);
+    }
     this.sync.destroy();
     this.awareness.destroy();
     void this.store?.destroy();
@@ -270,6 +361,148 @@ export class RoomSession {
     this.publishMe({ ...this.snapshot.me, name });
   }
 
+  /** Lock or unlock the room (host). The server decides; the room document shows it to all. */
+  async setLocked(locked: boolean): Promise<ActionResult> {
+    const access = this.managed;
+    if (!access) return { ok: false, reason: 'unavailable' };
+    const res = await access.backend.setLocked(access.room.id, locked);
+    if (res.ok && !this.stopped) writeLocked(this.doc, locked, this.deps.pid);
+    return res;
+  }
+
+  /** Remove a person for good (host). */
+  async removePerson(pid: string): Promise<ActionResult> {
+    const access = this.managed;
+    if (!access) return { ok: false, reason: 'unavailable' };
+    const res = await access.backend.removeMember(access.room.id, pid);
+    if (res.ok && !this.stopped) markRemoved(this.doc, pid);
+    return res;
+  }
+
+  /** Hand the room to another person who is in it (host). */
+  async makeHost(pid: string): Promise<ActionResult> {
+    const access = this.managed;
+    if (!access) return { ok: false, reason: 'unavailable' };
+    const res = await access.backend.transferHost(access.room.id, pid);
+    if (res.ok && !this.stopped) writeHost(this.doc, pid);
+    return res;
+  }
+
+  /** Delete the room for everyone (host). */
+  async deleteRoom(): Promise<ActionResult> {
+    const access = this.managed;
+    if (!access) return { ok: false, reason: 'unavailable' };
+    const res = await access.backend.deleteRoom(access.room.id);
+    if (res.ok && !this.stopped) {
+      markDeleted(this.doc); // the others see it at once and check with the server
+      this.end('deleted');
+    }
+    return res;
+  }
+
+  private readonly onDocUpdate = (_update: Uint8Array, origin: unknown) => {
+    if (origin === SNAPSHOT_ORIGIN) return;
+    this.unsaved += 1;
+    this.scheduleSave();
+  };
+
+  /** The person who has been here longest saves the room (one writer, not eight). */
+  private isWriter(): boolean {
+    const me = this.snapshot.me;
+    return this.others().every(
+      (p) => me.joinedAt < p.joinedAt || (me.joinedAt === p.joinedAt && me.pid < p.pid),
+    );
+  }
+
+  /** Save 10 s after the last change, and at least every 30 s while changes keep coming. */
+  private scheduleSave(): void {
+    const access = this.managed;
+    if (!access || this.stopped || this.unsaved === 0 || !this.isWriter()) return;
+    if (this.saveQuiet) clearTimeout(this.saveQuiet);
+    this.saveQuiet = setTimeout(() => {
+      void this.save();
+    }, access.saveQuietMs ?? SAVE_QUIET_MS);
+    this.saveLatest ??= setTimeout(() => {
+      void this.save();
+    }, access.saveMaxWaitMs ?? SAVE_MAX_WAIT_MS);
+  }
+
+  private sendSnapshot(access: RoomAccess): Promise<ActionResult> | null {
+    const state = Y.encodeStateAsUpdate(this.doc);
+    if (state.length > SNAPSHOT_MAX_BYTES) return null;
+    return access.backend.saveSnapshot(access.room.id, state);
+  }
+
+  private async save(): Promise<void> {
+    if (this.saveQuiet) clearTimeout(this.saveQuiet);
+    if (this.saveLatest) clearTimeout(this.saveLatest);
+    this.saveQuiet = this.saveLatest = null;
+    const access = this.managed;
+    if (!access || this.stopped || this.saving || this.unsaved === 0 || !this.isWriter()) return;
+    const upTo = this.unsaved;
+    this.saving = true;
+    const res = await this.sendSnapshot(access);
+    this.saving = false;
+    if (res?.ok) this.unsaved -= upTo;
+    // changes that arrived while saving, or a failed save: try again on the usual schedule
+    if (this.unsaved > 0 && res !== null && (res.ok || res.reason === 'offline')) {
+      this.scheduleSave();
+    }
+  }
+
+  /** Heartbeat: keeps the seat; learns about a removal, a deleted room, a new host, the lock. */
+  private async beat(): Promise<void> {
+    const access = this.managed;
+    if (!access || this.stopped || this.snapshot.ended) return;
+    const now = Date.now();
+    if (now - this.lastBeat < 1000) return; // several triggers at once: one question is enough
+    this.lastBeat = now;
+    const res = await access.backend.touch(access.room.id);
+    if (this.isStopped()) return;
+    if (!res.ok) {
+      if (res.reason === 'removed') this.end('removed');
+      else if (res.reason === 'not-member') this.end('deleted');
+      return;
+    }
+    // the host's browser keeps what the room shows in line with the server
+    if (res.room.hostUid === this.deps.pid && readSettings(this.doc)) {
+      writeHost(this.doc, this.deps.pid);
+      writeLocked(this.doc, res.room.locked, lockedBy(this.doc) ?? this.deps.pid);
+    }
+  }
+
+  /** (a method, so the check is made again after every await) */
+  private isStopped(): boolean {
+    return this.stopped;
+  }
+
+  /** This person is out of the room: stop syncing, keep nothing on screen. */
+  private end(reason: 'removed' | 'deleted'): void {
+    if (this.snapshot.ended) return;
+    if (this.heartbeat) clearInterval(this.heartbeat);
+    this.heartbeat = null;
+    this.update({ ended: reason });
+    this.sync.destroy();
+  }
+
+  private readonly onAccess = () => {
+    // A removed person's page may have been cut off before it could say goodbye: take them out of
+    // the people list now. (If the mark is false they are still here and show up again by
+    // themselves within seconds.)
+    for (const pid of removedPeople(this.doc)) {
+      if (this.dropped.has(pid) || pid === this.deps.pid) continue;
+      this.dropped.add(pid);
+      const clients: number[] = [];
+      this.awareness.getStates().forEach((state, clientId) => {
+        if (readUser(state.user)?.pid === pid) clients.push(clientId);
+      });
+      if (clients.length > 0) removeAwarenessStates(this.awareness, clients, 'removed');
+    }
+    this.refresh();
+    // "you were removed" / "room deleted" written by the host: believe it only if the server agrees
+    if (isMarkedRemoved(this.doc, this.deps.pid) || isMarkedDeleted(this.doc)) void this.beat();
+  };
+
   private createRoom(create: CreateOptions): void {
     const created = initRoom(this.doc, {
       name: create.name,
@@ -283,6 +516,8 @@ export class RoomSession {
   private readonly onAwareness = () => {
     this.reconcileSlot();
     this.refresh();
+    // someone left: this page may be the one that saves now
+    this.scheduleSave();
   };
 
   /** Settings, the send lock and context items: shown at once (a ticked box must not flicker). */
@@ -306,6 +541,9 @@ export class RoomSession {
 
   private readonly onSyncState = (state: SyncState) => {
     if (state === 'synced' || state === 'alone') this.stream.resetStaleClock();
+    // The live channel dropped: it may be a removal or a deleted room, so ask the server now
+    // instead of waiting for the next heartbeat.
+    if (state === 'connecting' && this.started) void this.beat();
     this.reconcileSlot();
     this.refresh();
     if (state === 'offline') this.update({ state });
@@ -405,8 +643,15 @@ export class RoomSession {
       merges: listMergeEvents(this.doc),
       context: listContext(this.doc),
       systemLine: readSystemLine(this.doc),
+      locked: this.managed ? readLocked(this.doc) || this.initiallyLocked() : false,
+      lockedBy: lockedBy(this.doc),
     });
     if (full && !wasFull) this.leaveBecauseFull();
+  }
+
+  /** Until the room document says otherwise, believe what the server said when we joined. */
+  private initiallyLocked(): boolean {
+    return this.deps.access?.room.locked === true && lockedBy(this.doc) === null;
   }
 
   private leaveBecauseFull(): void {

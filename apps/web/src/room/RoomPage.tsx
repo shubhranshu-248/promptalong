@@ -7,12 +7,15 @@ import {
 import { Button, Chip, buttonClass, initials, presenceHex } from '@promptalong/ui';
 import { useEffect, useState } from 'react';
 import { Link, Navigate, useLocation, useParams } from 'react-router';
+import { backend } from '../backend';
 import { SiteNav } from '../components/SiteNav';
+import { RoomBlocked } from './access';
 import { NameField } from './dialogs';
-import { getDisplayName, getPid, saveDisplayName } from './identity';
+import { getDisplayName, saveDisplayName } from './identity';
 import { RoomView } from './RoomView';
 import type { CreateOptions } from './session';
-import { useRoomSession } from './useRoomSession';
+import { useRoomAccess } from './useRoomAccess';
+import { useRoomSession, type OpenRoom } from './useRoomSession';
 
 interface RoomLocationState {
   create?: CreateOptions;
@@ -84,7 +87,8 @@ export function JoinGate({ code, onJoin }: { code: string; onJoin: (name: string
             Join room
           </Button>
           <p className="mt-2.5 text-xs text-text-muted">
-            Rooms are open to anyone with the code. Don&apos;t paste secrets into a shared prompt.
+            Anyone with the code can join until the host locks the room. Don&apos;t paste secrets
+            into a shared prompt.
           </p>
         </form>
       </main>
@@ -92,6 +96,31 @@ export function JoinGate({ code, onJoin }: { code: string; onJoin: (name: string
   );
 }
 
+function Opening({ code }: { code: string }) {
+  return (
+    <p className="p-8 text-center text-sm text-text-muted" role="status">
+      Opening room {formatRoomCode(code)}…
+    </p>
+  );
+}
+
+function OpenRoomView({
+  code,
+  name,
+  open,
+  state,
+}: {
+  code: string;
+  name: string;
+  open: OpenRoom;
+  state: RoomLocationState;
+}) {
+  const session = useRoomSession(code, open, name, state.create);
+  if (!session) return <Opening code={code} />;
+  return <RoomView session={session} openShare={state.share === true} />;
+}
+
+/** Gets a seat from the server first; the room opens only when the server says yes. */
 function RoomLoader({
   code,
   name,
@@ -101,15 +130,28 @@ function RoomLoader({
   name: string;
   state: RoomLocationState;
 }) {
-  const session = useRoomSession(code, getPid(), name, state.create);
-  if (!session) {
+  const service = backend();
+  const access = useRoomAccess(service, code, name, state.create);
+  if (access.state.status === 'checking') return <Opening code={code} />;
+  if (access.state.status === 'blocked') {
     return (
-      <p className="p-8 text-center text-sm text-text-muted" role="status">
-        Opening room {formatRoomCode(code)}…
-      </p>
+      <RoomBlocked
+        reason={access.state.reason}
+        code={code}
+        name={access.state.name}
+        onRetry={access.retry}
+      />
     );
   }
-  return <RoomView session={session} openShare={state.share === true} />;
+  const { room, uid, slot } = access.state;
+  return (
+    <OpenRoomView
+      code={code}
+      name={name}
+      open={{ backend: service, room, uid, slot }}
+      state={state}
+    />
+  );
 }
 
 /** A new room code (e.g. after Fork room) mounts a fresh page with its own creation details. */

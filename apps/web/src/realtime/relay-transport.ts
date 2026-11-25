@@ -10,6 +10,8 @@ export class RelayTransport extends BaseTransport {
   constructor(
     private readonly url: string,
     private readonly room: string,
+    /** who is connecting; the relay only lets people with a seat in the room in */
+    private readonly uid = '',
   ) {
     super();
   }
@@ -21,7 +23,9 @@ export class RelayTransport extends BaseTransport {
   protected open(): void {
     if (this.socket) return;
     this.setStatus('connecting');
-    const ws = new WebSocket(`${this.url}/?room=${encodeURIComponent(this.room)}`);
+    const ws = new WebSocket(
+      `${this.url}/?room=${encodeURIComponent(this.room)}&uid=${encodeURIComponent(this.uid)}`,
+    );
     this.socket = ws;
     ws.onopen = () => {
       this.attempts = 0;

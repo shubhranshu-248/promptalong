@@ -3,22 +3,11 @@ import type { RealtimeChannel, SupabaseClient } from '@supabase/supabase-js';
 import { BaseTransport } from './base-transport';
 
 const EVENT = 'y';
-let clientPromise: Promise<SupabaseClient> | null = null;
-
-/** One lazily loaded Supabase client per page (supabase-js is not in the first-load bundle). */
-function getClient(url: string, key: string): Promise<SupabaseClient> {
-  clientPromise ??= import('@supabase/supabase-js').then(({ createClient }) =>
-    createClient(url, key, {
-      auth: { persistSession: false, autoRefreshToken: false },
-      realtime: { params: { eventsPerSecond: 40 } },
-    }),
-  );
-  return clientPromise;
-}
 
 /**
- * Supabase Realtime broadcast channel `room:{code}` (ADR-002, ADR-008: public channel until P6).
- * Delivery is at-most-once; RoomSync repairs gaps.
+ * Supabase Realtime broadcast on a private channel `room:{room id}` (ADR-002, ADR-006): only
+ * people with a seat in the room may subscribe, checked by the database. Delivery is at-most-once;
+ * RoomSync repairs gaps.
  */
 export class SupabaseTransport extends BaseTransport {
   private channel: RealtimeChannel | null = null;
@@ -26,9 +15,8 @@ export class SupabaseTransport extends BaseTransport {
   private opening = false;
 
   constructor(
-    private readonly url: string,
-    private readonly key: string,
-    private readonly room: string,
+    private readonly getClient: () => Promise<SupabaseClient>,
+    private readonly topic: string,
   ) {
     super();
   }
@@ -42,32 +30,35 @@ export class SupabaseTransport extends BaseTransport {
     if (this.channel || this.opening) return;
     this.opening = true;
     this.setStatus('connecting');
-    void getClient(this.url, this.key).then(
-      (client) => {
-        this.opening = false;
-        if (!this.wanted || this.channel) return;
-        this.client = client;
-        const channel = client.channel(`room:${this.room}`, {
-          config: { broadcast: { self: false, ack: false } },
-        });
-        this.channel = channel;
-        channel.on('broadcast', { event: EVENT }, (event: { payload?: unknown }) => {
-          const msg = parseWireMessage(event.payload);
-          if (msg) this.emit(msg);
-        });
-        channel.subscribe((subscribeStatus) => {
-          if (this.channel !== channel) return;
-          const status: string = subscribeStatus;
-          if (status === 'SUBSCRIBED') this.setStatus(navigator.onLine ? 'online' : 'offline');
-          else if (status === 'CLOSED') this.setStatus('offline');
-          else this.setStatus('connecting'); // CHANNEL_ERROR / TIMED_OUT: realtime-js rejoins itself
-        });
-      },
-      () => {
-        this.opening = false;
-        this.setStatus('offline');
-      },
-    );
+    void this.getClient()
+      // the channel is authorised with this person's sign-in, not the public key
+      .then((client) => client.realtime.setAuth().then(() => client))
+      .then(
+        (client) => {
+          this.opening = false;
+          if (!this.wanted || this.channel) return;
+          this.client = client;
+          const channel = client.channel(this.topic, {
+            config: { private: true, broadcast: { self: false, ack: false } },
+          });
+          this.channel = channel;
+          channel.on('broadcast', { event: EVENT }, (event: { payload?: unknown }) => {
+            const msg = parseWireMessage(event.payload);
+            if (msg) this.emit(msg);
+          });
+          channel.subscribe((subscribeStatus) => {
+            if (this.channel !== channel) return;
+            const status: string = subscribeStatus;
+            if (status === 'SUBSCRIBED') this.setStatus(navigator.onLine ? 'online' : 'offline');
+            else if (status === 'CLOSED') this.setStatus('offline');
+            else this.setStatus('connecting'); // CHANNEL_ERROR / TIMED_OUT: realtime-js rejoins itself
+          });
+        },
+        () => {
+          this.opening = false;
+          this.setStatus('offline');
+        },
+      );
   }
 
   protected close(): void {
