@@ -1,7 +1,8 @@
 import { Extension } from '@tiptap/core';
-import type { Plugin, Transaction } from '@tiptap/pm/state';
+import { Plugin, TextSelection, type EditorState, type Transaction } from '@tiptap/pm/state';
 import type { DecorationAttrs } from '@tiptap/pm/view';
 import {
+  absolutePositionToRelativePosition,
   defaultDeleteFilter,
   redo,
   undo,
@@ -24,6 +25,62 @@ export interface YjsCollaborationOptions {
 export function isRemoteChange(tr: Transaction): boolean {
   const meta = tr.getMeta(ySyncPluginKey) as { isChangeOrigin?: boolean } | undefined;
   return meta?.isChangeOrigin === true;
+}
+
+/** The part of y-prosemirror's binding this file uses (it is not in the package's types). */
+interface SyncBinding {
+  type: Y.XmlFragment;
+  doc: Y.Doc;
+  mapping: Parameters<typeof absolutePositionToRelativePosition>[2];
+  prosemirrorView: unknown;
+  beforeTransactionSelection: unknown;
+}
+
+/**
+ * My caret, as a position that stays right after the letter before it. y-prosemirror stores the
+ * caret attached to the letter AFTER it, so when someone else types exactly where my caret is,
+ * my caret jumps past their letters; we then both keep typing after each other's newest letter
+ * and the words interleave ("9 (from0-s me)econd"). Attached to the letter before it, my caret
+ * stays put, my next letter follows my own last one, and each person's words stay together.
+ * Returns null for a range (left to y-prosemirror).
+ */
+function stickyCaret(binding: SyncBinding, state: EditorState) {
+  const sel = state.selection;
+  if (!(sel instanceof TextSelection) || !sel.empty) return null;
+  // y-prosemirror's helpers are typed loosely (`any`)
+  const rel = absolutePositionToRelativePosition(
+    sel.head,
+    binding.type,
+    binding.mapping,
+  ) as Y.RelativePosition | null;
+  if (!rel) return null;
+  const abs = Y.createAbsolutePositionFromRelativePosition(rel, binding.doc);
+  if (!abs || !(abs.type instanceof Y.XmlText) || abs.index === 0) return null;
+  const left = Y.createRelativePositionFromTypeIndex(abs.type, abs.index, -1);
+  return { type: 'text', anchor: left, head: left };
+}
+
+/** Replaces y-prosemirror's stored caret at the start of every change with the sticky one. */
+function stickyCaretPlugin(): Plugin {
+  return new Plugin({
+    view(view) {
+      const binding = (ySyncPluginKey.getState(view.state) as { binding?: SyncBinding } | undefined)
+        ?.binding;
+      if (!binding) return {};
+      const doc = binding.doc;
+      const onBefore = () => {
+        if (binding.prosemirrorView == null) return;
+        const caret = stickyCaret(binding, view.state);
+        if (caret) binding.beforeTransactionSelection = caret;
+      };
+      doc.on('beforeAllTransactions', onBefore);
+      return {
+        destroy() {
+          doc.off('beforeAllTransactions', onBefore);
+        },
+      };
+    },
+  });
 }
 
 /**
@@ -76,6 +133,7 @@ export const YjsCollaboration = Extension.create<YjsCollaborationOptions, YjsCol
         selectionBuilder: (user: Record<string, unknown>) => renderSelection(user),
       }) as Plugin,
       yUndoPlugin({ undoManager }) as Plugin,
+      stickyCaretPlugin(),
     ];
     return plugins;
   },
