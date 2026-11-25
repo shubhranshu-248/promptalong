@@ -26,3 +26,15 @@ export {
   isOverCapacity,
   type PresentPerson,
 } from './slots';
+export {
+  ACCESS_FIELD,
+  isMarkedDeleted,
+  isMarkedRemoved,
+  lockedBy,
+  markDeleted,
+  markRemoved,
+  readLocked,
+  removedPeople,
+  writeHost,
+  writeLocked,
+} from './access';

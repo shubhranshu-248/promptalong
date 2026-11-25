@@ -1,0 +1,23 @@
+{
+  "$schema": "https://supabase.com/schemas/config/v1.json",
+  // Local Supabase stack for development and tests (`supabase start`). The hosted project is
+  // configured in its dashboard; nothing here is deployed to it.
+  "project_id": "promptalong",
+
+  "auth": {
+    "enabled": true,
+    // every browser signs in anonymously on first use
+    "enable_anonymous_sign_ins": true,
+    "rate_limit": {
+      // test runs open many browsers from one address (the hosted default is 30 per hour)
+      "anonymous_users": 10000,
+    },
+  },
+
+  // the app uses the database, auth and realtime only
+  "storage": { "enabled": false },
+  "studio": { "enabled": false },
+  "local_smtp": { "enabled": false },
+  "edge_runtime": { "enabled": false },
+  "analytics": { "enabled": false },
+}

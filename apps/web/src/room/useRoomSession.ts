@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { IndexeddbPersistence } from 'y-indexeddb';
-import { createTransport, realtimeConfig } from '../realtime';
+import type { RoomBackend, RoomInfo } from '../backend';
+import { realtimeConfig } from '../realtime';
 import { RoomSession, type CreateOptions, type RoomSnapshot } from './session';
 
 declare global {
@@ -14,20 +15,30 @@ declare global {
  * Opens a room for as long as the component is mounted. The session is created inside the effect
  * so React's development double-mount gets two clean sessions instead of a stopped one.
  */
+export interface OpenRoom {
+  backend: RoomBackend;
+  room: RoomInfo;
+  /** this person's id on that backend */
+  uid: string;
+  slot: number;
+}
+
 export function useRoomSession(
   code: string,
-  pid: string,
+  open: OpenRoom,
   name: string,
   create: CreateOptions | undefined,
 ): RoomSession | null {
   const [session, setSession] = useState<RoomSession | null>(null);
-  const initial = useRef({ name, create });
+  const initial = useRef({ name, create, open });
   useEffect(() => {
+    const { backend, room, uid, slot } = initial.current.open;
     const s = new RoomSession({
       code,
-      pid,
+      pid: uid,
       name: initial.current.name,
-      transport: createTransport(realtimeConfig, code),
+      transport: backend.transport(room),
+      access: { backend, room, slot },
       persist: (doc) => new IndexeddbPersistence(`promptalong:room:${code}`, doc),
       ...(initial.current.create ? { create: initial.current.create } : {}),
     });
@@ -42,7 +53,7 @@ export function useRoomSession(
       window.removeEventListener('pagehide', leave);
       s.stop();
     };
-  }, [code, pid]);
+  }, [code]);
   return session;
 }
 

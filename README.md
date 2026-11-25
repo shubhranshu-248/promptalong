@@ -21,8 +21,9 @@ prompt, one shared answer and one shared history.
 > Every prompt shows who wrote which part, and the conversation branches like a git history:
 > branch from any turn, compare two turns, merge prompt changes back, or fork the room.
 > Everyone can attach notes, snippets and text files as context; the panel shows the exact
-> request body before it is sent, with a live token budget. Rooms are not private yet: anyone
-> with a room code can join it.
+> request body before it is sent, with a live token budget. Rooms are saved on the server, so a
+> room opens with its content even when nobody else is online; the host can lock a room, remove
+> people or delete it; any branch exports to Markdown or JSON.
 
 ## What makes it different
 
@@ -47,7 +48,8 @@ packages/core       room model, provenance, conversation tree, context assembly
 packages/providers  model provider interface and backends
 packages/ui         design tokens and components
 packages/config     shared TypeScript / ESLint / Prettier / Tailwind config
-supabase/           migrations and RLS policies
+packages/db         tests of the database rules on an in-process Postgres
+supabase/           migrations, RLS policies and the local stack config
 e2e/                Playwright tests
 ```
 
@@ -63,7 +65,8 @@ pnpm dev                 # terminal 2: http://localhost:5173
 ```
 
 Open the same room link in two browsers (or a normal and a private window) to write together.
-Without the relay the app still works, but each browser only sees its own copy.
+The relay stands in for the hosted backend with the same room rules, kept in memory (rooms are
+forgotten when it stops). Without it the app still works, but each browser only sees its own copy.
 
 Useful scripts:
 
@@ -76,13 +79,19 @@ Useful scripts:
 | `pnpm check`                                            | every CI gate except E2E                                                                   |
 
 Environment variables are listed in [`.env.example`](.env.example). Locally nothing is needed: rooms
-sync through the relay. With `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` set, rooms sync through
-Supabase Realtime instead.
+sync through the relay. With `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` set, the app uses that
+Supabase project: anonymous sign-in, rooms and snapshots in Postgres behind row-level security, and a
+private Realtime channel per room. Setting one up, locally or hosted, is described in
+[docs/runbooks/database.md](docs/runbooks/database.md).
 
 ## Privacy
 
 Your model key never leaves your browser: it is not synced to other people, not sent to any
 PromptAlong server, and not logged. Only your browser talks to the model provider you choose.
+No table in the database has a column for a key.
+
+Anyone with a room's code can join it until the host locks it. People in a room can read
+everything in it, so do not paste secrets into a shared prompt.
 
 ## Licence
 

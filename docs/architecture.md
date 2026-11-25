@@ -155,11 +155,39 @@ late joiners the answer so far) without anyone sharing a key.
 
 ## Rooms and access
 
-- Anonymous sign-in gives every browser a real user id without email.
+- Identity: on first use the browser signs in anonymously (Supabase Anonymous Sign-Ins), which
+  gives it a real user id without an email. That id is the participant id on everything the
+  person writes.
 - Rooms have a 6-character code from a 31-character alphabet without look-alike characters
-  (`packages/core/src/room-code.ts`), up to 8 people, and a host who can lock the room.
-- Joining goes through a `join_room(code)` SQL function. Every table has RLS; channel messages
-  are restricted to room members. Room creation and join attempts are rate-limited per user.
+  (`packages/core/src/room-code.ts`) and hold up to 8 people.
+- The database (`supabase/migrations`): `rooms`, `room_members`, `room_snapshots` and a rate-limit
+  table. Row-level security is on for every table: members can read their own room's rows and
+  nobody writes a table directly. Every write goes through SQL functions that check the caller
+  (`create_room`, `join_room`, `touch_room`, `leave_room`, `set_room_locked`, `remove_member`,
+  `transfer_host`, `delete_room`, `save_snapshot`, `load_snapshot`).
+- `join_room` refuses when the room does not exist, the person was removed, the room is locked
+  (people who already have a seat may come back) or 8 people are active. A seat is active for
+  90 seconds after its last heartbeat (`touch_room`, every 30 seconds). Limits per person: 5 new
+  rooms and 30 counted join attempts an hour.
+- The live channel is private: policies on `realtime.messages` let only people with a seat receive
+  and send on `room:{id}`.
+- The host can lock the room, remove a person (for good), hand the room to someone else, or
+  delete it. The room document mirrors lock, removals and deletion so everyone sees them at once;
+  a browser that sees itself removed asks the server before leaving, so a mark written by someone
+  else does nothing.
+- Snapshots: the person who has been in the room longest saves the whole document 10 seconds after
+  a change, at least every 30 seconds while changes keep coming, and when they leave. A joiner
+  loads the snapshot, so a room opens with its content when nobody else is online.
+- Rooms idle for 30 days are deleted (`delete_idle_rooms`, daily with pg_cron when it is enabled).
+- One interface, three backends (`apps/web/src/backend`): the Supabase project, the local relay
+  with the same rules in memory (development and tests need no hosted service), and "this device
+  only" when nothing is configured.
+
+## Export
+
+Any branch exports as Markdown (readable) or JSON (prompt segments with authors, context, model,
+request hash, the branch tree), with or without context and author names. It is built in the
+browser from the room document, which never holds a model key.
 
 ## Quality gates
 

@@ -22,11 +22,12 @@ import {
   type RoomModelChoice,
 } from '@promptalong/providers';
 import { Button, LogoMark, buttonClass, cx, initials } from '@promptalong/ui';
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { ContextPanel, ContextWide, type PanelTab } from '../context/ContextPanel';
 import { useContextBudget } from '../context/useContextBudget';
 import { matchesMedia, useMedia } from '../context/useMedia';
 import { useKeyStore } from '../keys/useKeyStore';
+import { RoomBlocked } from './access';
 import { AddKeyDialog, ModelDialog } from '../models/ModelDialog';
 import { isWebLlmReady } from '../models/webllm-state';
 import { Link, useNavigate, useSearchParams } from 'react-router';
@@ -34,7 +35,7 @@ import { realtimeConfig } from '../realtime';
 import { getThemePreference, setThemePreference, type ThemePreference } from '../theme';
 import { saveDisplayName } from './identity';
 import { PromptEditor } from './PromptEditor';
-import { RenameDialog, ShareDialog } from './dialogs';
+import { DialogShell, RenameDialog, ShareDialog } from './dialogs';
 import { AuthorStyles } from './AuthorText';
 import { authorName } from './authors';
 import { BranchDialog, ForkDialog, MergeDialog, RenameBranchDialog } from './branch-dialogs';
@@ -70,7 +71,20 @@ function Avatar({ person, size = 32 }: { person: PersonView; size?: number }) {
   );
 }
 
-function PeopleList({ people }: { people: PersonView[] }) {
+/** Export is rarely opened: its code is loaded when it is. */
+const ExportDialog = lazy(() => import('../export/ExportDialog'));
+
+const menuItem =
+  'flex cursor-default items-center gap-2.5 rounded-md px-3 py-2.5 text-sm font-medium outline-none data-[highlighted]:bg-surface-2';
+
+function PeopleList({
+  people,
+  manage,
+}: {
+  people: PersonView[];
+  /** host powers (only given to the host of a room that has a server) */
+  manage?: { makeHost: (p: PersonView) => void; remove: (p: PersonView) => void } | undefined;
+}) {
   return (
     <section aria-labelledby="people-h">
       <h2
@@ -95,6 +109,44 @@ function PeopleList({ people }: { people: PersonView[] }) {
               </p>
               <p className="text-xs text-text-muted">{ACTIVITY[p.activity]}</p>
             </div>
+            {manage && !p.me ? (
+              <Menu.Root>
+                <Menu.Trigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    aria-label={`Host actions for ${p.name}`}
+                    className="w-10 flex-none px-0"
+                  >
+                    ⋯
+                  </Button>
+                </Menu.Trigger>
+                <Menu.Portal>
+                  <Menu.Content
+                    align="end"
+                    sideOffset={4}
+                    className="z-[40] w-[220px] rounded-lg border border-border bg-surface p-1.5 text-text shadow-lg"
+                  >
+                    <Menu.Item
+                      className={menuItem}
+                      onSelect={() => {
+                        manage.makeHost(p);
+                      }}
+                    >
+                      Make host
+                    </Menu.Item>
+                    <Menu.Item
+                      className={cx(menuItem, 'text-danger')}
+                      onSelect={() => {
+                        manage.remove(p);
+                      }}
+                    >
+                      Remove from the room…
+                    </Menu.Item>
+                  </Menu.Content>
+                </Menu.Portal>
+              </Menu.Root>
+            ) : null}
           </li>
         ))}
       </ul>
@@ -106,10 +158,17 @@ function RoomMenu({
   onShare,
   onRename,
   onLeave,
+  onExport,
+  lock,
+  onDelete,
 }: {
   onShare: () => void;
   onRename: () => void;
   onLeave: () => void;
+  onExport: () => void;
+  /** host of a room with a server: lock or unlock */
+  lock?: { locked: boolean; toggle: () => void } | undefined;
+  onDelete?: (() => void) | undefined;
 }) {
   const [theme, setTheme] = useState<ThemePreference>(getThemePreference);
   const item =
@@ -132,6 +191,14 @@ function RoomMenu({
           </Menu.Item>
           <Menu.Item className={item} onSelect={onRename}>
             Change your name
+          </Menu.Item>
+          {lock ? (
+            <Menu.Item className={item} onSelect={lock.toggle} data-testid="menu-lock">
+              {lock.locked ? 'Unlock room' : 'Lock room'}
+            </Menu.Item>
+          ) : null}
+          <Menu.Item className={item} onSelect={onExport}>
+            Export
           </Menu.Item>
           <Menu.Separator className="mx-1 my-1.5 h-px bg-border" />
           <Menu.Label className="px-3 pt-1 pb-1 text-xs font-semibold text-text-muted">
@@ -158,6 +225,11 @@ function RoomMenu({
           <Menu.Item className={cx(item, 'text-danger')} onSelect={onLeave}>
             Leave room
           </Menu.Item>
+          {onDelete ? (
+            <Menu.Item className={cx(item, 'text-danger')} onSelect={onDelete}>
+              Delete room for everyone…
+            </Menu.Item>
+          ) : null}
         </Menu.Content>
       </Menu.Portal>
     </Menu.Root>
@@ -282,6 +354,21 @@ export function RoomView({ session, openShare }: { session: RoomSession; openSha
   const navigate = useNavigate();
   const [shareOpen, setShareOpen] = useState(openShare);
   const [renameOpen, setRenameOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportUsed, setExportUsed] = useState(false);
+  const [confirm, setConfirm] = useState<
+    { kind: 'remove'; person: PersonView } | { kind: 'delete' } | null
+  >(null);
+  const [accessNotice, setAccessNotice] = useState<string | null>(null);
+  useEffect(() => {
+    if (!accessNotice) return;
+    const timer = setTimeout(() => {
+      setAccessNotice(null);
+    }, 6000);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [accessNotice]);
   const [params, setParams] = useSearchParams();
   const desktop = useMedia('(min-width: 768px)');
   const [tab, setTab] = useState<'chat' | 'context' | 'people' | 'tree'>(() =>
@@ -357,6 +444,21 @@ export function RoomView({ session, openShare }: { session: RoomSession; openSha
   const me = snap.me;
   const host = snap.people.find((p) => p.host);
   const iAmHost = snap.settings?.hostPid === me.pid;
+  const canManage = snap.managed && iAmHost;
+  const toggleLock = () => {
+    const next = !snap.locked;
+    void session.setLocked(next).then((res) => {
+      setAccessNotice(
+        res.ok
+          ? next
+            ? 'Room locked: new people cannot join. People already here can come back.'
+            : 'Room unlocked: anyone with the code can join.'
+          : res.reason === 'offline'
+            ? 'You are offline: the lock was not changed.'
+            : 'Only the host can lock the room.',
+      );
+    });
+  };
   const hostOnly = snap.settings?.sendPolicy === 'host';
   const online = snap.state === 'synced' || snap.state === 'alone';
   const lockedByOther = snap.lock !== null && snap.lock.session !== session.sync.id;
@@ -398,6 +500,9 @@ export function RoomView({ session, openShare }: { session: RoomSession; openSha
     [session, keys],
   );
 
+  if (snap.ended) {
+    return <RoomBlocked reason={snap.ended} code={session.code} name={snap.settings?.name} />;
+  }
   if (snap.full) return <RoomFull name={snap.settings?.name ?? null} />;
 
   const title = snap.settings?.name ?? formatRoomCode(session.code);
@@ -476,6 +581,24 @@ export function RoomView({ session, openShare }: { session: RoomSession; openSha
           <span className="size-2 rounded-full bg-success" aria-hidden="true" />
           <span className="max-md:hidden">Model:</span> {modelLabel(snap.model, true)}
         </Button>
+        {canManage ? (
+          <Button
+            size="sm"
+            className="max-md:hidden"
+            aria-pressed={snap.locked}
+            onClick={toggleLock}
+            data-testid="lock-button"
+          >
+            {snap.locked ? 'Unlock' : 'Lock'}
+          </Button>
+        ) : snap.locked ? (
+          <span
+            className="flex-none rounded-pill bg-surface-2 px-2.5 py-1 text-xs font-semibold max-md:hidden"
+            data-testid="locked-chip"
+          >
+            Locked
+          </span>
+        ) : null}
         <RoomMenu
           onShare={() => {
             setShareOpen(true);
@@ -487,9 +610,26 @@ export function RoomView({ session, openShare }: { session: RoomSession; openSha
             session.stop();
             void navigate('/');
           }}
+          onExport={() => {
+            setExportUsed(true);
+            setExportOpen(true);
+          }}
+          lock={canManage ? { locked: snap.locked, toggle: toggleLock } : undefined}
+          onDelete={
+            canManage
+              ? () => {
+                  setConfirm({ kind: 'delete' });
+                }
+              : undefined
+          }
         />
       </header>
 
+      {accessNotice ? (
+        <Notice tone="info" testId="access-notice">
+          <span>{accessNotice}</span>
+        </Notice>
+      ) : null}
       {snap.state === 'offline' ? (
         <Notice tone="warn" testId="offline-banner">
           <span>
@@ -604,7 +744,27 @@ export function RoomView({ session, openShare }: { session: RoomSession; openSha
               }}
             />
           ) : (
-            <PeopleList people={snap.people} />
+            <PeopleList
+              people={snap.people}
+              manage={
+                canManage
+                  ? {
+                      makeHost: (p) => {
+                        void session.makeHost(p.pid).then((res) => {
+                          setAccessNotice(
+                            res.ok
+                              ? `${p.name} is the host now.`
+                              : 'The host could not be changed. Try again.',
+                          );
+                        });
+                      },
+                      remove: (p) => {
+                        setConfirm({ kind: 'remove', person: p });
+                      },
+                    }
+                  : undefined
+              }
+            />
           )}
           <section className={cx('mt-auto', showTree && 'hidden')} aria-labelledby="room-h">
             <h2
@@ -617,6 +777,12 @@ export function RoomView({ session, openShare }: { session: RoomSession; openSha
               <span>Who can Send</span>
               <b>{snap.settings?.sendPolicy === 'host' ? 'Host only' : 'Everyone'}</b>
             </p>
+            {snap.managed ? (
+              <p className="mt-1.5 flex justify-between text-sm" data-testid="room-lock">
+                <span>Room lock</span>
+                <b>{snap.locked ? 'Locked' : 'Open'}</b>
+              </p>
+            ) : null}
           </section>
         </aside>
 
@@ -1033,6 +1199,67 @@ export function RoomView({ session, openShare }: { session: RoomSession; openSha
           setRoomModel(session.doc, { ...DEFAULT_MODEL, setBy: me.pid });
         }}
       />
+      {exportUsed ? (
+        <Suspense fallback={null}>
+          <ExportDialog
+            open={exportOpen}
+            onOpenChange={setExportOpen}
+            session={session}
+            snap={snap}
+          />
+        </Suspense>
+      ) : null}
+      <DialogShell
+        open={confirm !== null}
+        onOpenChange={(open) => {
+          if (!open) setConfirm(null);
+        }}
+        title={
+          confirm?.kind === 'remove'
+            ? `Remove ${confirm.person.name}?`
+            : 'Delete this room for everyone?'
+        }
+        footer={
+          <>
+            <Button
+              onClick={() => {
+                setConfirm(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              data-testid="confirm-access"
+              onClick={() => {
+                const what = confirm;
+                setConfirm(null);
+                if (what?.kind === 'remove') {
+                  void session.removePerson(what.person.pid).then((res) => {
+                    setAccessNotice(
+                      res.ok
+                        ? `${what.person.name} was removed and cannot come back.`
+                        : `${what.person.name} could not be removed. Try again.`,
+                    );
+                  });
+                } else if (what?.kind === 'delete') {
+                  void session.deleteRoom().then((res) => {
+                    if (!res.ok) setAccessNotice('The room could not be deleted. Try again.');
+                  });
+                }
+              }}
+            >
+              {confirm?.kind === 'remove' ? 'Remove' : 'Delete room'}
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm">
+          {confirm?.kind === 'remove'
+            ? `${confirm.person.name} leaves the room now and cannot join it again from that browser. What they wrote stays, with their name on it.`
+            : "The room, its saved copy and everyone's seat are deleted from the server now. People who have it open are sent out. Copies already saved on their devices are not touched. Export first if you want to keep the conversation."}
+        </p>
+      </DialogShell>
       <RenameDialog
         open={renameOpen}
         onOpenChange={setRenameOpen}

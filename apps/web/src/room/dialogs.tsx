@@ -138,7 +138,8 @@ export function ShareDialog({
         </Button>
       </div>
       <p className="mt-3 text-xs text-text-muted">
-        Anyone with the link or code can join. Your model key is never shared.
+        Anyone with the link or code can join until the host locks the room. Your model key is never
+        shared.
       </p>
       <p className="sr-only" aria-live="polite">
         {copied ? `${copied === 'link' ? 'Link' : 'Code'} copied` : ''}

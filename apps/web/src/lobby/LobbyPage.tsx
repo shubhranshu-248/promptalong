@@ -190,7 +190,7 @@ export function LobbyPage() {
       <main className="mx-auto max-w-[1040px] px-4 pt-6 pb-12 md:px-6 md:pt-12">
         <h1 className="text-[28px] font-bold md:text-[36px]">Start or join a room</h1>
         <p className="mt-2 text-text-muted">
-          Rooms hold up to 8 people. Anyone with the link or code can join.
+          Rooms hold up to 8 people. Anyone with the link or code can join until you lock the room.
         </p>
 
         <div className="mt-8 grid grid-cols-1 gap-6 md:grid-cols-2">

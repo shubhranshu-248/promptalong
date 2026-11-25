@@ -367,6 +367,18 @@ importers:
         specifier: 5.1.1
         version: 5.1.1(@types/node@24.19.2)(jsdom@31.0.1)(vite@8.3.8(@types/node@24.19.2)(jiti@2.7.0))
 
+  packages/db:
+    devDependencies:
+      '@electric-sql/pglite':
+        specifier: 0.6.0
+        version: 0.6.0
+      '@promptalong/config':
+        specifier: workspace:*
+        version: link:../config
+      vitest:
+        specifier: 5.1.1
+        version: 5.1.1(@types/node@24.19.2)(jsdom@31.0.1)(vite@8.3.8(@types/node@24.19.2)(jiti@2.7.0))
+
   packages/providers:
     devDependencies:
       '@promptalong/config':
@@ -496,6 +508,9 @@ packages:
 
   '@cacheable/utils@2.5.0':
     resolution: {integrity: sha512-buipgOVDkkPXNR5+xBpDw7Zk2n1EvU7qBJCNUcL7rhQ//kfpOXPAvQ511Os0vpLYJ1pZnvudNytkQt2hst3wqA==}
+
+  '@electric-sql/pglite@0.6.0':
+    resolution: {integrity: sha512-g3tAPFjRLEdN1g5FvawTl4ETo9LtmVwBRUJYnH6Erl6mhlKFRGB2mYhPABffIuXMYxki64mX0Al8U4UFUhuYDQ==}
 
   '@emnapi/core@2.0.0-beta.2':
     resolution: {integrity: sha512-MzCVoWtcg4Pm2B3je5mMvYMvj3MmBKw+fU7vbsJc9/iT8ip6/eYIHo/Dsm/mr+wsHB6SEyJDuxB09Yy6r/8+4A==}
@@ -2521,6 +2536,8 @@ snapshots:
     dependencies:
       hashery: 1.5.1
       keyv: 5.6.0
+
+  '@electric-sql/pglite@0.6.0': {}
 
   '@emnapi/core@2.0.0-beta.2':
     dependencies:
