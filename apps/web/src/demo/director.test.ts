@@ -26,7 +26,7 @@ const fast = { speed: 0.01, provider: new MockProvider({ chunkMs: 1 }) };
 
 describe('DemoDirector', () => {
   it('plays the story into the visitor room and hands over turn 3', async () => {
-    director = await DemoDirector.open({ visitorName: 'You', ...fast });
+    director = new DemoDirector({ visitorName: 'You', ...fast });
     const doc = director.visitor.doc;
     await director.play();
     expect(director.getPhase()).toBe('your-turn');
@@ -81,7 +81,7 @@ describe('DemoDirector', () => {
   }, 20_000);
 
   it('Stop ends the script at once and closes every session', async () => {
-    director = await DemoDirector.open({ visitorName: 'You', ...fast });
+    director = new DemoDirector({ visitorName: 'You', ...fast });
     const playing = director.play();
     director.stop();
     await playing;
@@ -90,7 +90,7 @@ describe('DemoDirector', () => {
   });
 
   it('the visitor can send in the middle of the story; the script waits and carries on', async () => {
-    director = await DemoDirector.open({ visitorName: 'You', ...fast });
+    director = new DemoDirector({ visitorName: 'You', ...fast });
     const visitor = director.visitor;
     const playing = director.play();
     await vi.waitFor(() => {

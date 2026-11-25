@@ -154,6 +154,13 @@ export interface RoomSessionDeps {
   /** local persistence (y-indexeddb in the app; omitted in tests) */
   persist?: (doc: Y.Doc) => LocalStore;
   create?: CreateOptions;
+  /**
+   * Where this person sits in join order and which colour they ask for. The live demo shows the
+   * visitor's room first and lets the scripted teammates join a moment later, yet lists the visitor
+   * last, in the fourth colour, as in the mockup.
+   */
+  joinedAt?: number;
+  slot?: number;
   now?: () => number;
   /** shared-stream timings (tests make them short) */
   stream?: { claimMs?: number; beatMs?: number; staleMs?: number; flushMs?: number };
@@ -205,13 +212,13 @@ export class RoomSession {
     });
     const now = deps.now ?? Date.now;
     const remembered = peopleMap(this.doc).get(deps.pid);
-    const given = deps.access?.slot ?? 0;
+    const given = deps.access?.slot ?? deps.slot ?? 0;
     const slot = given > 0 ? given : (remembered?.slot ?? 0);
     const me: AwarenessUser = {
       pid: deps.pid,
       name: deps.name,
       slot,
-      joinedAt: now(),
+      joinedAt: deps.joinedAt ?? now(),
       ...presenceHex(slot || 1),
     };
     this.snapshot = {

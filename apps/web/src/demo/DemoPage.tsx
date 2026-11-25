@@ -1,40 +1,55 @@
-import { MockProvider } from '@promptalong/providers';
-import { Button, buttonClass } from '@promptalong/ui';
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { LogoMark } from '@promptalong/ui';
+import { lazy, Suspense } from 'react';
 import { Link } from 'react-router';
-import { matchesMedia } from '../context/useMedia';
-import { getDisplayName } from '../room/identity';
-import { RoomView } from '../room/RoomView';
-import { DemoDirector, type DemoPhase } from './director';
+import { DemoBanner } from './DemoBanner';
+import { DEMO_ROOM_NAME } from './script';
 
-/** The scripted teammates' answers stream a little slower, so turn 3 is written while one streams. */
-const teammatesModel = new MockProvider({ chunkMs: 90 });
+// the room (editor, sync, model code) is the heavy part; this page draws first without it
+const DemoRoom = lazy(() => import('./DemoRoom'));
 
-const noSubscribe = () => () => undefined;
-const playing = (): DemoPhase => 'playing';
-
-function DemoBanner({ phase, onReplay }: { phase: DemoPhase; onReplay: () => void }) {
+/**
+ * The demo room as it looks before anyone has typed, drawn from this small file while the room's
+ * code loads - so a phone shows the room in about the time the home page takes, not seconds later.
+ * The same layout and words as the empty room, so nothing jumps when the real room takes over.
+ */
+function DemoShell() {
   return (
-    <section
-      aria-label="Live demo"
-      className="flex flex-none flex-wrap items-center gap-x-3 gap-y-2 bg-warning-bg px-4 py-2.5 text-sm text-warning-text max-md:px-3 max-md:py-2 max-md:text-xs"
-      data-testid="demo-banner"
-    >
-      <p className="min-w-0 flex-1 basis-[260px]" role="status" data-testid="demo-phase">
-        <b className="mr-1.5">Live demo</b>
-        {phase === 'your-turn'
-          ? 'Your turn: the next prompt is ready. Press Send, or change it first - it is your room now.'
-          : 'Aarav, Meera and Kabir are scripted, and answers come from the demo model. Type anywhere to join in.'}
-      </p>
-      <span className="flex flex-none gap-2">
-        <Button size="sm" onClick={onReplay} data-testid="demo-replay">
-          Replay
-        </Button>
-        <Link to="/new" className={buttonClass({ size: 'sm', variant: 'primary' })}>
-          Start your own room
+    <div className="flex h-dvh flex-col" aria-busy="true">
+      <DemoBanner phase="playing" />
+      <header className="flex h-14 flex-none items-center gap-3 border-b border-border bg-surface px-4 max-md:gap-2 max-md:px-3">
+        <Link to="/" aria-label="PromptAlong home" className="flex-none">
+          <LogoMark size={28} dot="var(--c-text)" />
         </Link>
-      </span>
-    </section>
+        <div className="min-w-0">
+          <h1 className="truncate font-display text-[17px] leading-tight font-semibold">
+            {DEMO_ROOM_NAME}
+          </h1>
+          <p className="text-xs text-text-muted md:hidden">Demo</p>
+        </div>
+      </header>
+      {/* the room's columns: people | prompt and answers | context (from 1024 px) */}
+      <div className="grid min-h-0 flex-1 max-md:grid-cols-1 md:grid-cols-[260px_1fr] lg:grid-cols-[260px_1fr_360px]">
+        <div className="border-r border-border bg-surface max-md:hidden" />
+        <main className="flex min-h-0 min-w-0 flex-col">
+          <div className="flex flex-1 items-center justify-center p-8 max-md:p-4">
+            <p className="max-w-[420px] text-center text-sm text-text-muted">
+              Write the prompt together below - every keystroke shows up on every screen. When
+              someone presses Send, the answer streams in here for everyone.
+            </p>
+          </div>
+          {/* the shared prompt box, the height it has once the room is drawn */}
+          <div className="flex h-[320px] flex-none flex-col border-t border-border bg-surface px-6 pt-3.5 pb-4 max-md:p-3 md:h-[325px] lg:h-[258px]">
+            <p className="mb-2 text-xs font-bold">Shared prompt</p>
+            <div className="min-h-0 flex-1 rounded-lg border border-border" />
+          </div>
+        </main>
+        <div className="hidden border-l border-border bg-surface lg:block" />
+      </div>
+      <div className="h-[60px] flex-none border-t border-border bg-surface md:hidden" />
+      <p className="sr-only" role="status">
+        Opening the demo room…
+      </p>
+    </div>
   );
 }
 
@@ -43,59 +58,9 @@ function DemoBanner({ phase, onReplay }: { phase: DemoPhase; onReplay: () => voi
  * the demo model. No server, no model account, no network - and nothing is saved.
  */
 export function DemoPage() {
-  const [run, setRun] = useState(0);
-  const [director, setDirector] = useState<DemoDirector | null>(null);
-
-  useEffect(() => {
-    let alive = true;
-    let opened: DemoDirector | null = null;
-    void DemoDirector.open({
-      visitorName: getDisplayName() ?? 'You',
-      wholeWords: matchesMedia('(prefers-reduced-motion: reduce)'),
-      provider: teammatesModel,
-    }).then((d) => {
-      if (!alive) {
-        d.stop();
-        return;
-      }
-      opened = d;
-      setDirector(d);
-      void d.play();
-    });
-    return () => {
-      alive = false;
-      opened?.stop();
-      setDirector(null);
-    };
-  }, [run]);
-
-  const phase = useSyncExternalStore(
-    director?.subscribe ?? noSubscribe,
-    director?.getPhase ?? playing,
-  );
-
-  if (!director) {
-    return (
-      <p className="p-8 text-center text-sm text-text-muted" role="status">
-        Opening the demo room…
-      </p>
-    );
-  }
   return (
-    <RoomView
-      key={run}
-      session={director.visitor}
-      openShare={false}
-      demo={{
-        banner: (
-          <DemoBanner
-            phase={phase}
-            onReplay={() => {
-              setRun((r) => r + 1);
-            }}
-          />
-        ),
-      }}
-    />
+    <Suspense fallback={<DemoShell />}>
+      <DemoRoom fallback={<DemoShell />} />
+    </Suspense>
   );
 }

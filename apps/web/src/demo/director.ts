@@ -1,4 +1,4 @@
-import { MemoryHub, randomId } from '@promptalong/core';
+import { MemoryHub, initRoom, randomId } from '@promptalong/core';
 import type { Provider } from '@promptalong/providers';
 import { RoomSession } from '../room/session';
 import { DemoBot, pause } from './bot';
@@ -43,56 +43,65 @@ const LETTER_MS = 45;
  */
 export class DemoDirector {
   readonly visitor: RoomSession;
-  private readonly bots: Record<BotId, DemoBot>;
+  private readonly hub: MemoryHub;
+  private readonly options: DemoOptions;
+  private bots: Record<BotId, DemoBot> | null = null;
   private readonly ctrl = new AbortController();
   private readonly speed: number;
   private phase: DemoPhase = 'playing';
   private readonly listeners = new Set<() => void>();
 
-  private constructor(bots: Record<BotId, DemoBot>, visitor: RoomSession, speed: number) {
-    this.bots = bots;
-    this.visitor = visitor;
-    this.speed = speed;
+  /**
+   * Opens the visitor's room at once (named, with Meera as host, an empty prompt), so the page can
+   * draw it straight away. The scripted teammates join when the story starts (`play`), after the
+   * first paint. The visitor is listed last, in the fourth colour, as in the mockup.
+   */
+  constructor(options: DemoOptions) {
+    this.options = options;
+    this.speed = options.speed ?? 1;
+    this.hub = new MemoryHub();
+    this.visitor = new RoomSession({
+      code: DEMO_CODE,
+      pid: `demo-you-${randomId()}`,
+      name: options.visitorName,
+      transport: this.hub.createTransport(),
+      joinedAt: Date.now() + 60_000,
+      slot: 4,
+    });
+    initRoom(this.visitor.doc, {
+      name: DEMO_ROOM_NAME,
+      sendPolicy: 'everyone',
+      hostPid: BOTS.meera.pid,
+      createdAt: Date.now(),
+    });
+    this.visitor.start();
   }
 
-  /** Opens the room: the scripted people join first (in mockup order), then the visitor. */
-  static async open(options: DemoOptions): Promise<DemoDirector> {
-    const hub = new MemoryHub();
-    const speed = options.speed ?? 1;
+  /** The three teammates join a few milliseconds apart (colours go by join order). */
+  private async joinTeammates(): Promise<Record<BotId, DemoBot>> {
     const timing = {
-      letterMs: LETTER_MS * speed,
-      wholeWords: options.wholeWords === true,
-      provider: options.provider ?? null,
+      letterMs: LETTER_MS * this.speed,
+      wholeWords: this.options.wholeWords === true,
+      provider: this.options.provider ?? null,
     };
     const join = (id: BotId) => {
       const s = new RoomSession({
         code: DEMO_CODE,
         pid: BOTS[id].pid,
         name: BOTS[id].name,
-        transport: hub.createTransport(),
-        ...(id === 'meera'
-          ? { create: { name: DEMO_ROOM_NAME, sendPolicy: 'everyone' as const } }
-          : {}),
+        transport: this.hub.createTransport(),
       });
       s.start();
       return new DemoBot(s, timing);
     };
-    // a couple of milliseconds apart: colours are handed out in join order
-    const gap = () => new Promise((r) => setTimeout(r, 3));
+    const gap = () => pause(3, this.ctrl.signal);
     const aarav = join('aarav');
     await gap();
     const meera = join('meera');
     await gap();
     const kabir = join('kabir');
-    await gap();
-    const visitor = new RoomSession({
-      code: DEMO_CODE,
-      pid: `demo-you-${randomId()}`,
-      name: options.visitorName,
-      transport: hub.createTransport(),
-    });
-    visitor.start();
-    return new DemoDirector({ aarav, meera, kabir }, visitor, speed);
+    this.bots = { aarav, meera, kabir };
+    return this.bots;
   }
 
   subscribe = (listener: () => void): (() => void) => {
@@ -113,25 +122,27 @@ export class DemoDirector {
     if (this.phase === 'stopped') return;
     this.ctrl.abort();
     this.setPhase('stopped');
-    for (const bot of Object.values(this.bots)) bot.session.stop();
+    for (const bot of Object.values(this.bots ?? {})) bot.session.stop();
     this.visitor.stop();
   }
 
-  /** Plays the story once; resolves when it is the visitor's turn (or the demo was stopped). */
+  /**
+   * The teammates join and the story plays once; resolves when it is the visitor's turn (or the
+   * demo was stopped).
+   */
   async play(): Promise<void> {
     try {
-      await this.story();
+      const bots = await this.joinTeammates();
+      await this.story(bots);
       this.setPhase('your-turn');
     } catch (error) {
       if (!(error instanceof DOMException && error.name === 'AbortError')) throw error;
     }
   }
 
-  private async story(): Promise<void> {
-    const { aarav, meera, kabir } = this.bots;
+  private async story({ aarav, meera, kabir }: Record<BotId, DemoBot>): Promise<void> {
     const signal = this.ctrl.signal;
     const wait = (ms: number) => pause(ms * this.speed, signal);
-
     // Turn 1: context arrives while Aarav writes; Meera finishes the prompt and sends.
     await wait(800);
     meera.addContext(CONTEXT.criteria);
