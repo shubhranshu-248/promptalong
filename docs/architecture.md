@@ -50,7 +50,8 @@ e2e/                Playwright tests
   - cursors, selections, names and "typing / selecting" come from y-protocols awareness, at most
     one message per 100 ms per person. The people list is built from awareness too.
 - Transports (`apps/web/src/realtime`):
-  - **Supabase Realtime broadcast** on channel `room:{code}` (supabase-js is lazy-loaded);
+  - **Supabase Realtime broadcast** on the private channel `room:{room id}`, open only to people
+    with a seat (supabase-js is lazy-loaded);
   - a **local relay** (`scripts/dev-relay.mjs`) with the same broadcast behaviour, used in
     development and by the end-to-end tests, so CI needs no hosted service;
   - **this device only** when neither is configured.
@@ -60,9 +61,8 @@ e2e/                Playwright tests
 - Colour slots (1-8) are handed out in join order. Each browser picks only its own slot from what it
   sees, with one shared tie-break (earlier visit first, then id), so simultaneous joins never keep the
   same colour. A ninth person sees "room full".
-- Until the persistence phase, a room is its code: name and "who can Send" live in the document,
-  written once by the creator, and the channel is public (the code works as the invite). That phase
-  moves rooms to Postgres with private, member-only channels.
+- Room settings that everyone must see at once (name, "who can Send") live in the document; who
+  may join, lock, remove and delete is decided by the database (see Rooms and access).
 
 ### Editor binding
 
@@ -231,3 +231,11 @@ Performance budgets:
 - keystroke to remote cursor under 300 ms;
 - a streamed token visible to everyone in under 1 s;
 - Lighthouse score of 90 or more.
+
+## Deployment
+
+The app is a static build on Vercel (`apps/web/vercel.json`: SPA rewrite, long-lived cache for
+hashed assets, security headers). `main` deploys to production at
+[promptalong.vercel.app](https://promptalong.vercel.app); every pull request gets a preview.
+The Supabase project (free tier, Mumbai) holds rooms and snapshots and carries the live channels.
+Moving to another address is described in [runbooks/deploy.md](runbooks/deploy.md).
