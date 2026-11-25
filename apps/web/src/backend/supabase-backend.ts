@@ -3,6 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { SupabaseTransport } from '../realtime/supabase-transport';
 import {
   fromBase64,
+  KEEPALIVE_MAX_BODY,
   readActionResult,
   readJoinResult,
   readTouchResult,
@@ -86,18 +87,19 @@ export class SupabaseBackend implements RoomBackend {
     return res.offline ? { ok: false, reason: 'offline' } : readTouchResult(res.data);
   }
 
-  leave(roomId: string): void {
+  leave(roomId: string, state?: Uint8Array): void {
     if (!this.token) return;
+    const body = JSON.stringify({ p_room: roomId, ...(state ? { p_state: toBase64(state) } : {}) });
     // the page may be closing: a keepalive request outlives it, supabase-js calls may not
     void fetch(`${this.url}/rest/v1/rpc/leave_room`, {
       method: 'POST',
-      keepalive: true,
+      keepalive: body.length < KEEPALIVE_MAX_BODY,
       headers: {
         'content-type': 'application/json',
         apikey: this.key,
         authorization: `Bearer ${this.token}`,
       },
-      body: JSON.stringify({ p_room: roomId }),
+      body,
     }).catch(() => undefined);
   }
 

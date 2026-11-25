@@ -324,9 +324,14 @@ export class RoomSession {
     this.stream.destroy();
     const access = this.managed;
     if (access && !this.snapshot.ended) {
-      // last chance to put this page's changes on the server, then give the seat back
-      if (this.unsaved > 0 && this.isWriter()) void this.sendSnapshot(access);
-      access.backend.leave(access.room.id);
+      // last chance to put this page's changes on the server: in the same request that gives the
+      // seat back (the page may be closing, so only one request that outlives it is certain)
+      const state =
+        this.unsaved > 0 && this.isWriter() ? Y.encodeStateAsUpdate(this.doc) : undefined;
+      access.backend.leave(
+        access.room.id,
+        state && state.length <= SNAPSHOT_MAX_BYTES ? state : undefined,
+      );
     }
     this.sync.destroy();
     this.awareness.destroy();

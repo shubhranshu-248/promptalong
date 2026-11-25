@@ -150,7 +150,9 @@ const api = {
     return { ok: true, room: roomJson(room) };
   },
 
-  leave_room({ uid, room: id }) {
+  leave_room({ uid, room: id, state }) {
+    // a closing page sends its last copy of the room with it (a refused copy still leaves)
+    if (state !== undefined && state !== null) api.save_snapshot({ uid, room: id, state });
     const member = rooms.get(id)?.members.get(uid);
     if (member && !member.removed) member.left = true;
     return { ok: true };

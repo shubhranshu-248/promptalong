@@ -3,6 +3,7 @@ import { RelayTransport } from '../realtime/relay-transport';
 import { getPid } from '../room/identity';
 import {
   fromBase64,
+  KEEPALIVE_MAX_BODY,
   readActionResult,
   readJoinResult,
   readTouchResult,
@@ -50,8 +51,9 @@ export class RelayBackend implements RoomBackend {
     return res === null ? { ok: false, reason: 'offline' } : readTouchResult(res);
   }
 
-  leave(roomId: string): void {
-    void this.call('leave_room', { room: roomId }, true);
+  leave(roomId: string, state?: Uint8Array): void {
+    const body = { room: roomId, ...(state ? { state: toBase64(state) } : {}) };
+    void this.call('leave_room', body, JSON.stringify(body).length < KEEPALIVE_MAX_BODY);
   }
 
   setLocked(roomId: string, locked: boolean): Promise<ActionResult> {

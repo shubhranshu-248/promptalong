@@ -172,6 +172,23 @@ describe('join_room', () => {
     expect(await db.call(meera, 'join_room', code, 'Meera')).toMatchObject({ ok: true, slot: 4 });
   });
 
+  it('a closing page leaves with its last copy of the room in the same call', async () => {
+    const host = await db.user();
+    const meera = await db.user();
+    const { id, code } = await db.room(host);
+    await db.call(meera, 'join_room', code, 'Meera');
+    expect(reason(await db.call(meera, 'leave_room', id, 'AQIDBA=='))).toBe('ok');
+    expect(await db.call(host, 'load_snapshot', id)).toMatchObject({ ok: true, state: 'AQIDBA==' });
+    // the seat is given back even when the copy is refused
+    await db.call(meera, 'join_room', code, 'Meera');
+    expect(reason(await db.call(meera, 'leave_room', id, 'not base64!'))).toBe('ok');
+    expect(await db.as(meera, 'select code from public.rooms')).toEqual([]);
+    expect(await db.call(host, 'load_snapshot', id)).toMatchObject({ state: 'AQIDBA==' });
+    // someone who already left cannot write the room's copy that way
+    expect(reason(await db.call(meera, 'leave_room', id, 'BQY='))).toBe('ok');
+    expect(await db.call(host, 'load_snapshot', id)).toMatchObject({ state: 'AQIDBA==' });
+  });
+
   it('counts failed and first attempts: 30 per hour, so codes cannot be guessed in bulk', async () => {
     const host = await db.user();
     const { code } = await db.room(host);

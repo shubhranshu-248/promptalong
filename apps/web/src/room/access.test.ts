@@ -68,6 +68,23 @@ describe('rooms with a server', () => {
     expect(b.session.getSnapshot().managed).toBe(true);
   });
 
+  it('closing the page right after typing: the last words go to the server with the leave call', async () => {
+    const world = new MemoryServer(new MemoryHub());
+    // saves are far away: only the leave call can carry the words
+    const a = await open(world, 'aarav', 'Aarav', 1, true, {
+      saveQuietMs: 60_000,
+      saveMaxWaitMs: 60_000,
+    });
+    const stored = world.rooms.get(a.room.id);
+    await until(() => (stored?.saves.length ?? 0) >= 1);
+    type(a.session.doc, 'Next prompt, not sent yet');
+    a.session.stop();
+    expect(stored?.saves.length).toBe(2);
+
+    const b = await open(world, 'meera', 'Meera', 2);
+    await until(() => promptText(b.session.doc) === 'Next prompt, not sent yet');
+  });
+
   it('only the person who has been here longest saves; the next one takes over when they leave', async () => {
     const world = new MemoryServer(new MemoryHub());
     const a = await open(world, 'aarav', 'Aarav', 1, true);

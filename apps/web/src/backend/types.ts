@@ -49,8 +49,11 @@ export interface RoomBackend {
   joinRoom(code: string, displayName: string): Promise<JoinResult>;
   /** heartbeat: keeps the seat and reports what changed on the server */
   touch(roomId: string): Promise<TouchResult>;
-  /** gives the seat back; best effort, also called while the page closes */
-  leave(roomId: string): void;
+  /**
+   * Gives the seat back; best effort, also called while the page closes. `state` is this page's
+   * last copy of the room, saved in the same request (two requests could arrive in either order).
+   */
+  leave(roomId: string, state?: Uint8Array): void;
   setLocked(roomId: string, locked: boolean): Promise<ActionResult>;
   removeMember(roomId: string, uid: string): Promise<ActionResult>;
   transferHost(roomId: string, uid: string): Promise<ActionResult>;
@@ -60,6 +63,14 @@ export interface RoomBackend {
   /** the room's live channel */
   transport(room: RoomInfo): Transport;
 }
+
+/**
+ * Browsers cap the body of requests that outlive the page (fetch keepalive) at 64 KiB in total.
+ * Bigger "leave" calls go as normal requests: they still arrive when the page is closed in
+ * Chromium, maybe not in Firefox or Safari (the seat then frees itself after 90 s, and the room
+ * keeps its copy from the last save, at most 30 s older).
+ */
+export const KEEPALIVE_MAX_BODY = 60 * 1024;
 
 const FAILURES: Record<string, AccessFailure> = {
   not_found: 'not-found',

@@ -155,6 +155,13 @@ test.describe('room access', () => {
 
   test('a room opens with its content when nobody else is online', async ({ browser }) => {
     const aarav = await person(browser, 'Aarav');
+    // Playwright's Firefox loses the requests a page sends from "pagehide" when it closes the tab
+    // in about half the runs, unless some "pagehide" listener exists from the very start of the
+    // document (measured: 12 of 12 with one, 4-8 of 12 without). An empty one changes nothing in
+    // the app; it only lets the app's own close path be tested in Firefox.
+    await aarav.context.addInitScript(() => {
+      window.addEventListener('pagehide', () => undefined);
+    });
     let code: string;
     try {
       code = await createRoom(aarav);
@@ -164,7 +171,9 @@ test.describe('room access', () => {
         timeout: 15_000,
       });
       await write(aarav, 'Next prompt, not sent yet');
-      // leaving the page saves what is not saved yet
+      // closing the tab saves what is not saved yet (closing the whole browser context skips the
+      // page's "pagehide" in Chromium, so the tab is closed first, as a person would)
+      await aarav.page.close();
     } finally {
       await closeAll([aarav]);
     }

@@ -102,8 +102,9 @@ export class MemoryBackend implements RoomBackend {
     return Promise.resolve({ ok: true, room: { ...room.info } });
   }
 
-  leave(): void {
+  leave(roomId: string, state?: Uint8Array): void {
     // seats are kept: a person who left may come back
+    if (state) void this.saveSnapshot(roomId, state);
   }
 
   setLocked(roomId: string, locked: boolean): Promise<ActionResult> {

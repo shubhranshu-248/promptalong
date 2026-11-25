@@ -331,8 +331,10 @@ begin
 end;
 $$;
 
--- Gives the caller's seat back (they can join again later).
-create function public.leave_room(p_room uuid)
+-- Gives the caller's seat back (they can join again later). A page that is closing sends its last
+-- copy of the room with it (p_state, base64): one request, so the copy is saved while the seat is
+-- still theirs. A refused copy (too large, invalid) does not stop the leaving.
+create function public.leave_room(p_room uuid, p_state text default null)
 returns jsonb
 language plpgsql
 security definer
@@ -343,6 +345,9 @@ declare
 begin
   if v_uid is null then
     return jsonb_build_object('ok', false, 'reason', 'not_signed_in');
+  end if;
+  if p_state is not null then
+    perform public.save_snapshot(p_room, p_state);
   end if;
   update public.room_members m set left_at = now()
   where m.room_id = p_room and m.uid = v_uid and m.removed_at is null;
@@ -540,8 +545,8 @@ revoke execute on function public.join_room(text, text) from public, anon;
 grant execute on function public.join_room(text, text) to authenticated;
 revoke execute on function public.touch_room(uuid) from public, anon;
 grant execute on function public.touch_room(uuid) to authenticated;
-revoke execute on function public.leave_room(uuid) from public, anon;
-grant execute on function public.leave_room(uuid) to authenticated;
+revoke execute on function public.leave_room(uuid, text) from public, anon;
+grant execute on function public.leave_room(uuid, text) to authenticated;
 revoke execute on function public.set_room_locked(uuid, boolean) from public, anon;
 grant execute on function public.set_room_locked(uuid, boolean) to authenticated;
 revoke execute on function public.remove_member(uuid, uuid) from public, anon;
