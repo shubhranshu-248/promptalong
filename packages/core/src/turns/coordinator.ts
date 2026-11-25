@@ -1,12 +1,14 @@
 import type * as Y from 'yjs';
-import { historyMessages, tipOf } from '../branches/branches';
-import { fragmentWithSpans, trimWithSpans, type Span } from '../provenance/spans';
-import { MAIN_BRANCH, clearPrompt, draftFragment } from '../room/doc';
+import { tipOf } from '../branches/branches';
+import { assembleRoom, draftPrompt } from '../context/assemble';
+import type { Span } from '../provenance/spans';
+import { MAIN_BRANCH, clearPrompt } from '../room/doc';
 import {
   LOCK_FIELD,
   addTurn,
   sha256Hex,
   turnsMap,
+  type TurnContextRecord,
   type TurnError,
   type TurnProvider,
 } from './turns';
@@ -47,6 +49,8 @@ export interface SendRequest {
   provider: TurnProvider;
   /** builds the exact body from the messages (shown by the panel, posted by Send) */
   buildBody: (messages: { role: 'user' | 'assistant' | 'system'; content: string }[]) => string;
+  /** a token count this browser already has for a text (null = not counted yet) */
+  tokens?: (text: string) => { tokens: number; exact: boolean } | null;
   stream: (body: string, signal: AbortSignal) => AsyncIterable<StreamChunkLike>;
   /** clear the shared prompt when the turn starts (normal Send) - false for Retry */
   clearPrompt: boolean;
@@ -170,17 +174,25 @@ export class StreamCoordinator {
     // co-writer typed during the claim window belong to this turn. Reading, adding the turn and
     // clearing run with no await in between, so nothing can arrive that is cleared but not sent.
     const branchId = req.branchId ?? MAIN_BRANCH;
-    let fromDraft: { text: string; spans: Span[] } | null = null;
-    if (req.clearPrompt) {
-      const draft = fragmentWithSpans(draftFragment(this.doc, branchId));
-      fromDraft = trimWithSpans(draft.text, draft.spans);
-    }
+    const fromDraft = req.clearPrompt ? draftPrompt(this.doc, branchId) : null;
     const sent = fromDraft?.text ? fromDraft : { text: req.promptText, spans: req.spans ?? [] };
-    const messages = [
-      ...historyMessages(this.doc, branchId),
-      { role: 'user' as const, content: sent.text },
-    ];
-    const body = req.buildBody(messages);
+    // The same function the context panel shows: room line, included context, history, prompt.
+    const assembled = assembleRoom(this.doc, branchId, { prompt: sent.text });
+    const body = req.buildBody(assembled.messages);
+    const context: TurnContextRecord[] = assembled.items.map((item) => {
+      const counted = req.tokens?.(item.block) ?? null;
+      return {
+        itemId: item.itemId,
+        title: item.title,
+        ownerUid: item.ownerUid,
+        ownerName: item.ownerName,
+        kind: item.kind,
+        bytes: item.bytes,
+        tokens: counted?.tokens ?? Math.max(1, Math.round(item.block.length / 4)),
+        exact: counted?.exact ?? false,
+        hash: '',
+      };
+    });
     const started = this.o.now();
     let answer!: Y.Text;
     this.doc.transact(() => {
@@ -195,16 +207,30 @@ export class StreamCoordinator {
         spans: sent.spans,
         provider: req.provider,
         requestHash: '',
+        context,
+        systemLine: assembled.systemLine,
       });
       lockMap(this.doc).set('current', { ...claim, turnId, beat: 1 });
       if (req.clearPrompt) clearPrompt(this.doc, branchId);
     });
-    const requestHash = await sha256Hex(body);
+    const [requestHash, ...hashes] = await Promise.all([
+      sha256Hex(body),
+      ...assembled.items.map((item) => sha256Hex(item.text)),
+    ]);
     if (this.isDestroyed()) {
       this.active = null;
       return { ok: false, reason: 'lost' };
     }
-    turnsMap(this.doc).get(turnId)?.set('requestHash', requestHash);
+    this.doc.transact(() => {
+      const added = turnsMap(this.doc).get(turnId);
+      added?.set('requestHash', requestHash);
+      if (context.length > 0) {
+        added?.set(
+          'context',
+          context.map((c, i) => ({ ...c, hash: hashes[i] ?? '' })),
+        );
+      }
+    });
     this.beat();
     const turn = turnsMap(this.doc).get(turnId);
     const onTurn = () => {

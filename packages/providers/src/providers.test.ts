@@ -9,6 +9,7 @@ import {
   WebLlmProvider,
   mockChunks,
   modelLabel,
+  modelLimits,
   ndjson,
   readModelChoice,
   scrubSecrets,
@@ -83,6 +84,28 @@ describe('catalog and room choice', () => {
       expect(new URL(e.baseUrl).protocol).toBe('https:');
       expect(new URL(e.baseUrl).host).toBe(e.host);
     }
+  });
+
+  it('limits: the context window and how tokens can be counted before sending', () => {
+    expect(modelLimits(DEFAULT_MODEL)).toEqual({ contextWindow: 8192, counting: 'estimate' });
+    expect(modelLimits({ kind: 'byok', endpoint: 'openai', model: 'gpt-4o-mini' })).toEqual({
+      contextWindow: 128_000,
+      counting: 'encoding',
+      encoding: 'o200k_base',
+    });
+    expect(modelLimits({ kind: 'byok', endpoint: 'groq', model: 'llama-3.1-8b-instant' })).toEqual({
+      contextWindow: 131_072,
+      counting: 'estimate',
+    });
+    expect(modelLimits({ kind: 'webllm', model: 'SmolLM2-360M-Instruct-q4f16_1-MLC' })).toEqual({
+      contextWindow: 4096,
+      counting: 'engine',
+    });
+    // a model the catalog does not know (any local one) gets the small default window
+    expect(modelLimits({ kind: 'ollama', model: 'llama3.2' })).toEqual({
+      contextWindow: 8192,
+      counting: 'estimate',
+    });
   });
 
   it('labels', () => {
@@ -333,6 +356,8 @@ describe('webllm provider (fake engine)', () => {
           interruptGenerate: () => {
             interrupted = true;
           },
+          tokenize: (input: string) => Promise.resolve(input.split(' ').map((_, i) => i)),
+
           chat: {
             completions: {
               create: () =>
@@ -362,6 +387,17 @@ describe('webllm provider (fake engine)', () => {
     await collect(p.stream(body, new AbortController().signal));
     expect(loads).toHaveLength(1);
     expect(progress).toEqual([0.5, 1]);
+  });
+
+  it('counts tokens with the started model only, and never starts a download to count', async () => {
+    const { l, loads } = loader();
+    const p = new WebLlmProvider(l);
+    const model = 'Qwen2.5-0.5B-Instruct-q4f16_1-MLC';
+    expect(await p.countTokens(model, ['one two three'])).toBeNull();
+    expect(loads).toHaveLength(0);
+    await p.prepare(model, new AbortController().signal);
+    expect(await p.countTokens(model, ['one two three', '', 'x'])).toEqual([3, 0, 1]);
+    expect(await p.countTokens('another-model', ['one'])).toBeNull();
   });
 
   it('no WebGPU -> not available with a reason', async () => {

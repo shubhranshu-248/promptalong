@@ -102,8 +102,20 @@ export const ENDPOINTS: readonly Endpoint[] = [
     keysUrl: 'https://platform.openai.com/api-keys',
     host: 'api.openai.com',
     models: [
-      { id: 'gpt-4o-mini', label: 'GPT-4o mini', contextWindow: 128_000, tokenizer: 'exact' },
-      { id: 'gpt-4.1-mini', label: 'GPT-4.1 mini', contextWindow: 1_047_576, tokenizer: 'exact' },
+      {
+        id: 'gpt-4o-mini',
+        label: 'GPT-4o mini',
+        contextWindow: 128_000,
+        tokenizer: 'exact',
+        encoding: 'o200k_base',
+      },
+      {
+        id: 'gpt-4.1-mini',
+        label: 'GPT-4.1 mini',
+        contextWindow: 1_047_576,
+        tokenizer: 'exact',
+        encoding: 'o200k_base',
+      },
     ],
   },
 ];

@@ -31,4 +31,11 @@ export { MockProvider, mockAnswer, mockChunks, type MockOptions } from './mock';
 export { ByokProvider, parseChunk, type ByokOptions } from './byok';
 export { OLLAMA_URL, OllamaProvider, ollamaOriginsHint, type OllamaOptions } from './ollama';
 export { WebLlmProvider, type LoadProgress, type WebLlmEngine, type WebLlmLoader } from './webllm';
-export { modelLabel, sameChoice, readModelChoice } from './choice';
+export {
+  DEFAULT_CONTEXT_WINDOW,
+  modelLabel,
+  modelLimits,
+  readModelChoice,
+  sameChoice,
+  type ModelLimits,
+} from './choice';

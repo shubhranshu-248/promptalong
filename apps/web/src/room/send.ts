@@ -1,5 +1,16 @@
-import { promptText, type SendResult, type Span, type TurnError } from '@promptalong/core';
-import { ProviderError, modelLabel, scrubSecrets } from '@promptalong/providers';
+import {
+  promptText,
+  type AssembledMessage,
+  type SendResult,
+  type Span,
+  type TurnError,
+} from '@promptalong/core';
+import {
+  ProviderError,
+  modelLabel,
+  scrubSecrets,
+  type RoomModelChoice,
+} from '@promptalong/providers';
 import { providerFor } from '../models/providers';
 import type { RoomSession } from './session';
 
@@ -20,6 +31,14 @@ export function describeError(error: unknown): TurnError {
 }
 
 /**
+ * The exact request body for the room's model. The context panel shows this string and Send posts
+ * this string (ADR-005): both call this one function.
+ */
+export function buildBody(choice: RoomModelChoice, messages: AssembledMessage[]): string {
+  return providerFor(choice).buildRequestBody({ model: choice.model, messages });
+}
+
+/**
  * Sends the active branch's shared prompt (or, for Retry, an earlier turn's prompt with its
  * authors) with the room's model. Only
  * this browser calls the model; the answer reaches everyone through the room document.
@@ -29,7 +48,11 @@ export interface Retry {
   spans: Span[];
 }
 
-export function sendPrompt(session: RoomSession, retry?: Retry): Promise<SendResult> {
+export function sendPrompt(
+  session: RoomSession,
+  retry?: Retry,
+  tokens?: (text: string) => { tokens: number; exact: boolean } | null,
+): Promise<SendResult> {
   const snap = session.getSnapshot();
   const choice = snap.model;
   const provider = providerFor(choice);
@@ -45,7 +68,8 @@ export function sendPrompt(session: RoomSession, retry?: Retry): Promise<SendRes
       label: modelLabel(choice),
       ...(choice.endpoint ? { endpoint: choice.endpoint } : {}),
     },
-    buildBody: (messages) => provider.buildRequestBody({ model: choice.model, messages }),
+    buildBody: (messages) => buildBody(choice, messages),
+    ...(tokens ? { tokens } : {}),
     stream: (body, signal) => provider.stream(body, signal),
     clearPrompt: retry === undefined,
     describeError,

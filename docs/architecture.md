@@ -131,12 +131,27 @@ late joiners the answer so far) without anyone sharing a key.
 
 ## Context and token budget
 
-- Each person can attach notes, snippets and text files (text only, up to 200 KB each, 20 per room).
-- One pure function, `assemble(room, branch)`, builds the request in a fixed order: optional room
-  system line, included context items, branch history, current draft. The payload tab renders the
-  same string that Send posts. Nothing hidden is added.
-- Token counts run in a worker in the browser; exact for encodings the tokenizer knows, marked
-  "about" otherwise. Send is disabled when the request is over the model's budget.
+- Each person can attach notes, snippets and `.txt` / `.md` files (text only, UTF-8, up to 200 KB
+  each, 20 per room). Files are read in the browser; the text goes into the room document. Each
+  item is its own map, so including or excluding it (anyone can, and the room sees who did) never
+  re-sends its text. The owner can edit an item; the owner or the host can remove it.
+- One pure function, `assemble` (`packages/core/src/context`), builds the request in a fixed order:
+  one leading system message holding the optional room line and every included item in creation
+  order, each as `[context: {title} · {owner}]` + new line + text, separated by a blank line; then
+  the branch history; then the draft prompt. With no room line and nothing included there is no
+  system message. Owner names are read from the room document only, so every browser builds the
+  same bytes.
+- The Payload tab and Send call the same two functions (`assembleRoom`, then the provider's
+  `buildRequestBody`): the string shown is the string posted. Its SHA-256 is shown in the panel
+  and stored on the turn as `requestHash`. Each turn also freezes the context it used (title,
+  owner, size, tokens, SHA-256 of the text) and the room line.
+- Token counts run in a Web Worker (`gpt-tokenizer`, o200k_base), loaded on first use and cached
+  per text. They are exact for models that use that encoding; a model running in the browser is
+  counted with its own tokenizer once it is started; everything else is marked "about".
+- Budget = context window - room kept for the answer (1,024 tokens, or a quarter of a small
+  window). The bar shows prompt + history and each person's context. Over budget, Send is off for
+  everyone with "remove about N tokens"; nothing is trimmed silently.
+- Fork room copies the context items and the room line; compare shows what each turn used.
 
 ## Rooms and access
 
@@ -151,8 +166,9 @@ late joiners the answer so far) without anyone sharing a key.
 Every pull request runs: no-trace check, licence allow-list, ESLint, Prettier, TypeScript, Vitest,
 production build, first-load JS budget, and Playwright end-to-end tests over the local relay: two to
 four people typing at once (no lost or duplicated characters), a network cut and reconnect, reload
-and late join, per-person undo, keystroke-to-other-screen latency, the 8-person limit, and axe
-accessibility checks.
+and late join, per-person undo, keystroke-to-other-screen latency, the 8-person limit, payload
+equality (the panel's string is the intercepted request body and hashes to the stored request
+hash), a context toggle reaching everyone in under a second, and axe accessibility checks.
 
 Performance budgets:
 

@@ -22,11 +22,14 @@ import {
   type RoomModelChoice,
 } from '@promptalong/providers';
 import { Button, LogoMark, buttonClass, cx, initials } from '@promptalong/ui';
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { ContextPanel, ContextWide, type PanelTab } from '../context/ContextPanel';
+import { useContextBudget } from '../context/useContextBudget';
+import { matchesMedia, useMedia } from '../context/useMedia';
 import { useKeyStore } from '../keys/useKeyStore';
 import { AddKeyDialog, ModelDialog } from '../models/ModelDialog';
 import { isWebLlmReady } from '../models/webllm-state';
-import { Link, useNavigate } from 'react-router';
+import { Link, useNavigate, useSearchParams } from 'react-router';
 import { realtimeConfig } from '../realtime';
 import { getThemePreference, setThemePreference, type ThemePreference } from '../theme';
 import { saveDisplayName } from './identity';
@@ -279,7 +282,27 @@ export function RoomView({ session, openShare }: { session: RoomSession; openSha
   const navigate = useNavigate();
   const [shareOpen, setShareOpen] = useState(openShare);
   const [renameOpen, setRenameOpen] = useState(false);
-  const [tab, setTab] = useState<'chat' | 'people' | 'tree'>('chat');
+  const [params, setParams] = useSearchParams();
+  const desktop = useMedia('(min-width: 768px)');
+  const [tab, setTab] = useState<'chat' | 'context' | 'people' | 'tree'>(() =>
+    params.get('panel') === 'context' && !matchesMedia('(min-width: 768px)') ? 'context' : 'chat',
+  );
+  const [ctxOpen, setCtxOpen] = useState(() => matchesMedia('(min-width: 1100px)'));
+  const [ctxTab, setCtxTab] = useState<PanelTab>('context');
+  // mockup 05: the context list takes the main area (desktop only)
+  const wide = desktop && params.get('panel') === 'context';
+  const setWide = (on: boolean) => {
+    setParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (on) next.set('panel', 'context');
+        else next.delete('panel');
+        return next;
+      },
+      { replace: true },
+    );
+    if (on) setCtxOpen(true);
+  };
   const [panel, setPanel] = useState<'people' | 'tree'>('people');
   const [selected, setSelected] = useState<string[]>([]);
   const [comparing, setComparing] = useState(false);
@@ -320,6 +343,11 @@ export function RoomView({ session, openShare }: { session: RoomSession; openSha
   const [pendingRetry, setPendingRetry] = useState<Retry | undefined>(undefined);
   const [notice, setNotice] = useState<string | null>(null);
   const keys = useKeyStore();
+  const context = useContextBudget(session, snap);
+  const tokensFor = useRef(context.tokensFor);
+  useEffect(() => {
+    tokensFor.current = context.tokensFor;
+  }, [context.tokensFor]);
 
   const openModel = (focus?: ProviderKind) => {
     setModelFocus(focus);
@@ -341,7 +369,9 @@ export function RoomView({ session, openShare }: { session: RoomSession; openSha
       ? `Only ${host?.name ?? 'the host'} (host) can press Send in this room.`
       : lockedByOther
         ? `Send is free again when ${snap.lock?.name ?? 'their'}'s answer ends.`
-        : null;
+        : context.budget.over > 0
+          ? `Too long for this model: remove about ${context.budget.over.toLocaleString('en-US')} tokens (see Context).`
+          : null;
 
   const send = useCallback(
     (retryText?: Retry) => {
@@ -358,7 +388,7 @@ export function RoomView({ session, openShare }: { session: RoomSession; openSha
         return;
       }
       setNotice(null);
-      void sendPrompt(session, retryText).then((r) => {
+      void sendPrompt(session, retryText, (text) => tokensFor.current(text)).then((r) => {
         if (r.ok) return;
         if (r.reason === 'lost' || r.reason === 'busy') {
           setNotice(`${r.holder?.name ?? 'Someone else'} pressed Send first.`);
@@ -495,14 +525,23 @@ export function RoomView({ session, openShare }: { session: RoomSession; openSha
       <div
         className={cx(
           'grid min-h-0 flex-1 max-md:grid-cols-1',
-          showTree ? 'grid-cols-[400px_1fr]' : 'grid-cols-[260px_1fr]',
+          wide
+            ? 'md:grid-cols-[1fr_360px] lg:grid-cols-[1fr_520px]'
+            : ctxOpen
+              ? showTree
+                ? 'md:grid-cols-[1fr_360px] lg:grid-cols-[400px_1fr_360px]'
+                : 'md:grid-cols-[1fr_360px] lg:grid-cols-[260px_1fr_360px]'
+              : showTree
+                ? 'md:grid-cols-[400px_1fr]'
+                : 'md:grid-cols-[260px_1fr]',
         )}
       >
         <aside
           aria-label="Room"
           className={cx(
             'flex flex-col gap-[18px] overflow-auto border-r border-border bg-surface p-4',
-            tab === 'chat' ? 'max-md:hidden' : 'max-md:flex',
+            tab === 'people' || tab === 'tree' ? 'max-md:flex' : 'max-md:hidden',
+            wide ? 'md:hidden' : ctxOpen ? 'md:max-lg:hidden' : '',
           )}
         >
           <div
@@ -588,10 +627,12 @@ export function RoomView({ session, openShare }: { session: RoomSession; openSha
           <div
             className={cx(
               'flex flex-1 overflow-auto p-8 max-md:p-4',
-              snap.path.length === 0 && !compareA && 'items-center justify-center',
+              snap.path.length === 0 && !compareA && !wide && 'items-center justify-center',
             )}
           >
-            {compareA && compareB ? (
+            {wide ? (
+              <ContextWide session={session} snap={snap} data={context} />
+            ) : compareA && compareB ? (
               <Compare
                 a={compareA}
                 b={compareB}
@@ -646,7 +687,12 @@ export function RoomView({ session, openShare }: { session: RoomSession; openSha
               />
             )}
           </div>
-          <div className="border-t border-border bg-surface px-6 pt-3.5 pb-4 max-md:p-3">
+          <div
+            className={cx(
+              'border-t border-border bg-surface px-6 pt-3.5 pb-4 max-md:p-3',
+              wide && 'hidden',
+            )}
+          >
             <p
               className="mb-2 text-xs text-text-muted"
               aria-live="polite"
@@ -732,6 +778,32 @@ export function RoomView({ session, openShare }: { session: RoomSession; openSha
               }}
             />
             <div className="mt-3 flex flex-wrap items-center justify-end gap-3">
+              <Button
+                size="sm"
+                aria-expanded={desktop ? ctxOpen : tab === 'context'}
+                onClick={() => {
+                  if (desktop) setCtxOpen((open) => !open);
+                  else setTab('context');
+                  setCtxTab('context');
+                }}
+                data-testid="context-button"
+              >
+                + Context
+                <span className="rounded-pill bg-surface-2 px-2 py-0.5 text-[11px]">
+                  {snap.context.filter((i) => i.included).length}
+                </span>
+              </Button>
+              <span
+                className={cx(
+                  'font-mono text-xs',
+                  context.budget.over > 0 ? 'font-semibold text-danger' : 'text-text-muted',
+                )}
+                data-testid="composer-tokens"
+              >
+                {context.exact ? '' : 'about '}
+                {context.budget.used.toLocaleString('en-US')} /{' '}
+                {context.budget.limit.toLocaleString('en-US')} tokens
+              </span>
               <p
                 className="mr-auto min-w-0 text-xs text-text-muted"
                 aria-live="polite"
@@ -761,13 +833,39 @@ export function RoomView({ session, openShare }: { session: RoomSession; openSha
             </div>
           </div>
         </main>
+
+        <aside
+          aria-label="Context"
+          className={cx(
+            'min-h-0 flex-col border-l border-border bg-surface max-md:border-l-0',
+            tab === 'context' ? 'max-md:flex' : 'max-md:hidden',
+            ctxOpen || wide ? 'md:flex' : 'md:hidden',
+          )}
+          data-testid="context-panel"
+        >
+          <ContextPanel
+            session={session}
+            snap={snap}
+            data={context}
+            tab={ctxTab}
+            onTab={setCtxTab}
+            wide={wide}
+            onWide={setWide}
+            onClose={() => {
+              setCtxOpen(false);
+            }}
+            onChangeModel={() => {
+              openModel();
+            }}
+          />
+        </aside>
       </div>
 
       <nav
         aria-label="Room sections"
         className="flex h-[60px] flex-none border-t border-border bg-surface md:hidden"
       >
-        {(['chat', 'people', 'tree'] as const).map((t) => (
+        {(['chat', 'context', 'tree', 'people'] as const).map((t) => (
           <button
             key={t}
             type="button"
@@ -784,7 +882,13 @@ export function RoomView({ session, openShare }: { session: RoomSession; openSha
               aria-hidden="true"
               className={cx('h-[3px] w-5 rounded-sm bg-current', tab === t ? '' : 'opacity-50')}
             />
-            {t === 'chat' ? 'Chat' : t === 'people' ? `People (${snap.people.length})` : 'Tree'}
+            {t === 'chat'
+              ? 'Chat'
+              : t === 'context'
+                ? `Context (${snap.context.length})`
+                : t === 'people'
+                  ? `People (${snap.people.length})`
+                  : 'Tree'}
           </button>
         ))}
       </nav>
@@ -923,7 +1027,7 @@ export function RoomView({ session, openShare }: { session: RoomSession; openSha
         choice={model}
         myName={me.name}
         onSaved={() => {
-          void sendPrompt(session, pendingRetry);
+          void sendPrompt(session, pendingRetry, (text) => tokensFor.current(text));
         }}
         onUseDemo={() => {
           setRoomModel(session.doc, { ...DEFAULT_MODEL, setBy: me.pid });

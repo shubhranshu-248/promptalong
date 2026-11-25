@@ -19,9 +19,10 @@ prompt, one shared answer and one shared history.
 > that syncs back) and the shared answer work: anyone presses Send and everyone watches the same
 > answer stream in, from the demo model, your own key, a model in your browser or Ollama.
 > Every prompt shows who wrote which part, and the conversation branches like a git history:
-> branch from any turn, compare two turns, merge prompt changes back, or fork the room. The
-> context panel comes next. Rooms are not private yet: anyone with a
-> room code can join it.
+> branch from any turn, compare two turns, merge prompt changes back, or fork the room.
+> Everyone can attach notes, snippets and text files as context; the panel shows the exact
+> request body before it is sent, with a live token budget. Rooms are not private yet: anyone
+> with a room code can join it.
 
 ## What makes it different
 

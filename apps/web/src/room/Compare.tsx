@@ -26,6 +26,17 @@ function short(answer: string): string {
   return t.length > 420 ? `${t.slice(0, 420)}…` : t || '(no answer)';
 }
 
+/** What each turn sent as context: the same items, or what only one of them had. */
+function contextLine(a: TurnView, b: TurnView): string {
+  const key = (t: TurnView) => t.context.map((c) => `${c.itemId}:${c.hash}`).join('|');
+  const names = (t: TurnView) => t.context.map((c) => c.title).join(', ') || 'none';
+  const line = a.systemLine === b.systemLine ? '' : ' The room line was different.';
+  if (a.context.length === 0 && b.context.length === 0) return `none on either turn.${line}`;
+  if (key(a) === key(b))
+    return `the same ${String(a.context.length)} on both (${names(a)}).${line}`;
+  return `${names(a)} vs ${names(b)}.${line}`;
+}
+
 /** Mockup 04: two turns side by side - word diff of the prompts with authors, answers, model. */
 export function Compare({
   a,
@@ -132,7 +143,9 @@ export function Compare({
           ? `${a.provider.label} on both`
           : `${a.provider.label} vs ${b.provider.label}`}
         {' · '}Tokens: {tokens(a).toLocaleString()} vs {tokens(b).toLocaleString()}
-        {' · '}Context arrives with the context panel.
+      </p>
+      <p className="text-xs text-text-muted" data-testid="compare-context">
+        Context: {contextLine(a, b)}
       </p>
     </div>
   );

@@ -82,6 +82,15 @@ function PromptBubble({
       <p className="mb-1 text-xs text-text-muted">
         Turn {label.replace(/^T/u, '')} · sent by {name}
         {turn.branchId !== 'main' ? ` · ${ctx.branchName(turn.branchId)}` : ''}
+        {turn.context.length > 0 ? (
+          <span
+            data-testid="turn-context"
+            title={turn.context.map((c) => `${c.title} · ${c.ownerName}`).join('\n')}
+          >
+            {' '}
+            · {turn.context.length} context {turn.context.length === 1 ? 'item' : 'items'}
+          </span>
+        ) : null}
       </p>
       <p className="whitespace-pre-wrap break-words" data-testid="turn-prompt">
         <AttributedText
@@ -290,7 +299,8 @@ function Answer({
       ) : null}
       {turn.status === 'failed' ? (
         <p className="mt-2.5 text-xs text-text-muted">
-          The prompt is kept with the turn, so Retry sends the same request.
+          The prompt is kept with the turn. Retry sends it again with the context that is included
+          now.
           {turn.provider.kind === 'byok' && !mine
             ? ` Everyone sees that this turn failed; only ${turn.senderName || 'the sender'} sees the key options.`
             : ''}
