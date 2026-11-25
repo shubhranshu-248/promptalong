@@ -120,3 +120,15 @@
   background: var(--c-accent);
   transition: width 150ms linear;
 }
+
+/* Tables in model answers */
+.answer-table th,
+.answer-table td {
+  border: 1px solid var(--c-border);
+  padding: 6px 10px;
+  vertical-align: top;
+}
+.answer-table th {
+  background: var(--c-surface-2);
+  font-weight: 600;
+}

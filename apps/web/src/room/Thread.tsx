@@ -3,6 +3,7 @@ import { approxTokens } from '@promptalong/providers';
 import { Button, cx } from '@promptalong/ui';
 import { useEffect, useRef, type ReactNode } from 'react';
 import { AttributedText } from './AuthorText';
+import { Markdown } from './Markdown';
 import type { Roster } from './authors';
 import type { PersonView } from './session';
 
@@ -221,21 +222,26 @@ function Answer({
       ) : null}
       {turn.answer || streaming ? (
         <div
-          className="answer-text text-[15px] leading-relaxed whitespace-pre-wrap break-words"
+          className="answer-text text-[15px] leading-relaxed break-words"
           data-testid="answer-text"
           aria-busy={streaming}
         >
-          {turn.answer}
-          {streaming ? <span className="pa-stream-caret" aria-hidden="true" /> : null}
-          {turn.status === 'stopped' ? (
-            <span className="ml-1 text-xs text-text-muted">
-              <span
-                className="mr-1 inline-block size-2 bg-current align-middle"
-                aria-hidden="true"
-              />
-              stopped
-            </span>
-          ) : null}
+          <Markdown
+            text={turn.answer}
+            tail={
+              streaming ? (
+                <span className="pa-stream-caret" aria-hidden="true" />
+              ) : turn.status === 'stopped' ? (
+                <span className="ml-1 text-xs whitespace-nowrap text-text-muted">
+                  <span
+                    className="mr-1 inline-block size-2 bg-current align-middle"
+                    aria-hidden="true"
+                  />
+                  stopped
+                </span>
+              ) : null
+            }
+          />
         </div>
       ) : null}
       {turn.status === 'interrupted' && isLast ? (
