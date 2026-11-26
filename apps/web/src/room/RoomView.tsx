@@ -1008,7 +1008,9 @@ export function RoomView({
                 {context.budget.limit.toLocaleString('en-US')} tokens
               </span>
               <p
-                className="mr-auto min-w-0 text-xs text-text-muted"
+                // Phones: the hint gets its own row with room for two lines, so the prompt box does
+                // not move when a hint appears (e.g. "Send is free again ..." when a Send starts).
+                className="mr-auto min-w-0 text-xs text-text-muted max-md:order-last max-md:min-h-8 max-md:basis-full"
                 aria-live="polite"
                 data-testid="send-hint"
               >

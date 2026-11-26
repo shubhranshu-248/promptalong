@@ -1,6 +1,7 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { readFileSync } from 'node:fs';
+import type { Plugin } from 'vite';
 import { defineConfig } from 'vitest/config';
 
 interface VercelConfig {
@@ -30,8 +31,21 @@ function productionHeaders(): Record<string, string> {
   return out;
 }
 
+/**
+ * Public address of the site, used for the link-preview tags (they need absolute URLs). Defaults
+ * to the Vercel address; set VITE_SITE_URL when the app moves to its own domain.
+ */
+const SITE_URL = (process.env.VITE_SITE_URL ?? 'https://promptalong.vercel.app').replace(/\/$/, '');
+
+function siteMeta(): Plugin {
+  return {
+    name: 'promptalong-site-meta',
+    transformIndexHtml: (html) => html.replaceAll('%SITE_URL%', SITE_URL),
+  };
+}
+
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [react(), tailwindcss(), siteMeta()],
   server: { port: 5173, strictPort: true },
   preview: { port: 4173, strictPort: true, headers: productionHeaders() },
   build: {
