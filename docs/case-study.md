@@ -6,14 +6,15 @@ stream in.
 
 - Live: [promptalong.vercel.app](https://promptalong.vercel.app) - the
   [demo](https://promptalong.vercel.app/demo) needs no sign-up and no key
-- Role: solo - product, design, architecture, code, tests, deployment
+- Team: Shubhranshu Sahu and Sidak Kaur Gurpreet Singh Sachdev - product, design, architecture, code,
+  tests, deployment
 - Built: November 2026
 - Stack: TypeScript, React, Yjs, TipTap, Supabase (Realtime, Postgres, RLS), Vercel, Playwright
 - Cost to run: zero (free tiers only)
 
 ## The problem
 
-When my teams work with AI - in a hackathon, on a lab report, in a study group - everyone sits at
+When our teams work with AI - in a hackathon, on a lab report, in a study group - everyone sits at
 their own laptop with their own chat. One person writes a prompt, pastes the answer into the group
 chat, somebody else improves the prompt in their own window, and soon there are four versions of
 the prompt, four answers and nobody knows which one the slides came from.
@@ -32,23 +33,23 @@ gap is the product: Google Docs for the prompt, not just for the output.
 4. **Any model, no cost.** A scripted demo model, your own key (which never leaves your browser),
    a model running in the browser on WebGPU, or Ollama on your laptop.
 
-What I deliberately did **not** build: an own language model or a search engine. PromptAlong is
+What we deliberately did **not** build: an own language model or a search engine. PromptAlong is
 the multiplayer layer over models that already exist.
 
 ## Design
 
-I started with flows and mockups for every screen at desktop (1440 px) and phone (390 px) width
+We started with flows and mockups for every screen at desktop (1440 px) and phone (390 px) width
 before writing code, plus a small brand: three coloured strands that meet in one dot - three
 people, one answer. Presence colours had to stay apart for eight people and pass contrast checks
 in both themes, and colour is never the only cue: every caret and authorship span also carries a
 name.
 
-## Hard problems and how I solved them
+## Hard problems and how we solved them
 
-**Letters landing in the wrong place.** CRDTs (I used Yjs) guarantee that everyone ends up with the
+**Letters landing in the wrong place.** CRDTs (we used Yjs) guarantee that everyone ends up with the
 same text, but not that it reads well. When two people typed at the very end of the prompt at the
 same instant, their letters could interleave: "andK speaker notes. eep". The cause was the caret:
-after a remote insert, the local caret moved to the right of the other person's letters. I
+after a remote insert, the local caret moved to the right of the other person's letters. We
 attached each caret to the letter _before_ it instead, so each person keeps typing after their own
 text. A test where a visitor types along with a scripted teammate went from failing 9 of 15 runs
 to passing 15 of 15 in three browsers.
@@ -57,7 +58,7 @@ to passing 15 of 15 in three browsers.
 once. A send lock lives in the shared document with a heartbeat every 2 s; with others online, the
 sender waits 300 ms after taking it and only calls the model if the lock is still theirs. Anyone
 can press Stop, and if the sender closes the tab the answer so far is kept and marked interrupted.
-I also found (through a test) that reading the prompt at the click but clearing it after the
+We also found (through a test) that reading the prompt at the click but clearing it after the
 300 ms window lost the letters a co-writer typed in between - now the prompt is read, frozen and
 cleared in one step.
 
@@ -107,7 +108,7 @@ the production policy and a change that breaks the app fails CI.
 - CI blocks a merge on lint, types, formatting, unit tests, the build, the JavaScript budget and a
   licence allow-list (permissive licences only).
 
-## What I learned
+## What we learned
 
 - A CRDT solves the hard merge problem, but the experience lives in details around it: where the
   caret goes, who sees a change first, what happens when someone closes a tab mid-answer.
@@ -115,7 +116,7 @@ the production policy and a change that breaks the app fails CI.
   sees, like a letter typed during a 300 ms window or a save cut off when a tab closes.
 - Free tiers are enough for a real product if the design respects their limits from the start.
 
-## What I would do next
+## What we would do next
 
 - Voice presence for teams in different places.
 - Room templates for common tasks (pitch, lab report, revision notes).

@@ -141,6 +141,10 @@ The live demo runs entirely in your browser: nothing in it is sent anywhere or s
 Anyone with a room's code can join it until the host locks it. People in a room can read
 everything in it, so do not paste secrets into a shared prompt.
 
+## Team
+
+Built by Shubhranshu Sahu and Sidak Kaur Gurpreet Singh Sachdev.
+
 ## Licence
 
 [MIT](LICENSE) © 2026 Shubhranshu Sahu
