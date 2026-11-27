@@ -12,7 +12,7 @@ import {
   type ContextKind,
   type Segment,
 } from '@promptalong/core';
-import { modelLabel, modelLimits } from '@promptalong/providers';
+import { modelLabel } from '@promptalong/providers';
 import { Button, cx, initials, presenceHex } from '@promptalong/ui';
 import { useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react';
 import { authorName, type Roster } from '../room/authors';
@@ -22,7 +22,7 @@ import { ItemDialog, RemoveItemDialog, SystemLineDialog, type ItemDialogMode } f
 import { FILE_ACCEPT, formatBytes, readContextFile } from './files';
 import type { ContextBudget } from './useContextBudget';
 
-export type PanelTab = 'context' | 'payload' | 'model';
+export type PanelTab = 'context' | 'payload';
 
 const n = (value: number) => value.toLocaleString('en-US');
 
@@ -108,8 +108,8 @@ export function BudgetBar({
           className="mt-2 rounded-md bg-warning-bg px-3 py-2 text-xs text-warning-text"
           role="status"
         >
-          <b>This does not fit.</b> Remove about {n(budget.over)} tokens: exclude an item, shorten
-          the prompt, or branch from an earlier turn. Nothing is dropped for you.
+          <b>This does not fit.</b> Remove about {n(budget.over)} tokens: exclude an item or shorten
+          the prompt. Nothing is dropped for you.
         </p>
       ) : null}
       <p className="mt-1.5 text-xs text-text-muted">
@@ -228,17 +228,15 @@ function ItemCard({
   );
 }
 
-/** The item list with the add zone (mockups 03 and 05). */
+/** The item list with the add zone. */
 export function ContextList({
   session,
   snap,
   data,
-  wide,
 }: {
   session: RoomSession;
   snap: RoomSnapshot;
   data: ContextBudget;
-  wide?: boolean;
 }) {
   const me = snap.me.pid;
   const iAmHost = snap.settings?.hostPid === me;
@@ -260,10 +258,12 @@ export function ContextList({
     });
     if (result.ok) return null;
     return result.reason === 'too-large'
-      ? 'That is larger than 200 KB. Trim it, or add the part that matters.'
+      ? 'That is larger than 1 MB. Trim it, or add the part that matters.'
       : result.reason === 'room-full'
         ? `A room holds up to ${String(CONTEXT_MAX_ITEMS)} context items. Remove one first.`
-        : 'There is no text to add.';
+        : result.reason === 'room-size'
+          ? 'The room already holds 6 MB of context. Remove an item first.'
+          : 'There is no text to add.';
   };
 
   const addFiles = async (files: readonly File[]) => {
@@ -331,13 +331,10 @@ export function ContextList({
         )}
         data-testid="context-add"
       >
-        <p className="text-sm font-semibold">
-          {wide
-            ? 'Drop a .txt or .md file, paste a snippet, or write a note'
-            : 'Add context for the whole room'}
-        </p>
+        <p className="text-sm font-semibold">Add context for the whole room</p>
+        <p className="mt-0.5 text-xs text-text-muted">Or drop a .txt or .md file here</p>
         <p className="mt-1 text-xs text-text-muted">
-          Text only · up to 200 KB per item · {snap.context.length} of {CONTEXT_MAX_ITEMS} used
+          Text only, up to 1 MB each. {snap.context.length} of {CONTEXT_MAX_ITEMS} used.
         </p>
         <div className="mt-2.5 flex flex-wrap justify-center gap-2">
           <Button
@@ -401,7 +398,7 @@ export function ContextList({
           return result === 'ok'
             ? null
             : result === 'too-large'
-              ? 'That is larger than 200 KB.'
+              ? 'That is larger than 1 MB, or the room would pass 6 MB of context.'
               : result === 'empty'
                 ? 'There is no text to save.'
                 : 'This item was removed by someone else.';
@@ -481,7 +478,7 @@ export function PayloadView({
 
   const last = [...snap.path].reverse().find((t) => t.requestHash);
   const lastLabel = last ? (snap.labels[last.id] ?? '') : '';
-  const nextLabel = `T${String(snap.path.filter((t) => t.branchId === snap.activeBranch).length + 1)}`;
+  const nextLabel = `T${String(snap.path.length + 1)}`;
   const history = assembled.segments.filter((s) => s.kind === 'history');
   const historyTurns = [...new Set(history.map((s) => s.turnId ?? ''))];
   const historyTokens = history.reduce(
@@ -658,95 +655,50 @@ export function PayloadView({
   );
 }
 
-function ModelInfo({
-  snap,
-  data,
-  onChangeModel,
-}: {
-  snap: RoomSnapshot;
-  data: ContextBudget;
-  onChangeModel: () => void;
-}) {
-  const limits = modelLimits(snap.model);
-  const row = 'flex justify-between gap-3 border-b border-border py-2.5 text-sm';
-  return (
-    <div data-testid="model-info">
-      <p className={row}>
-        <span className="text-text-muted">Model</span>
-        <b className="text-right">{modelLabel(snap.model)}</b>
-      </p>
-      <p className={row}>
-        <span className="text-text-muted">Context window</span>
-        <b className="font-mono">{n(limits.contextWindow)}</b>
-      </p>
-      <p className={row}>
-        <span className="text-text-muted">Kept for the answer</span>
-        <b className="font-mono">{n(data.budget.reserve)}</b>
-      </p>
-      <p className={row}>
-        <span className="text-text-muted">Token counts</span>
-        <b>{data.exact ? 'exact' : 'about'}</b>
-      </p>
-      <p className="mt-3 text-xs text-text-muted">
-        The model is a room setting: everyone sends with the same one. Keys stay in each
-        person&apos;s own browser.
-      </p>
-      <Button className="mt-3" onClick={onChangeModel}>
-        Change model
-      </Button>
-    </div>
-  );
-}
-
-/** Right-hand panel: Context | Payload | Model (mockup 03), also the phone's Context tab. */
+/** The context drawer: what the room attaches, and the exact request Send will post. */
 export function ContextPanel({
   session,
   snap,
   data,
   tab,
   onTab,
-  wide,
-  onWide,
   onClose,
-  onChangeModel,
 }: {
   session: RoomSession;
   snap: RoomSnapshot;
   data: ContextBudget;
   tab: PanelTab;
   onTab: (tab: PanelTab) => void;
-  /** mockup 05: the item list is shown in the main area, this panel keeps Payload and Model */
-  wide: boolean;
-  onWide: (wide: boolean) => void;
   onClose: () => void;
-  onChangeModel: () => void;
 }) {
-  const tabs: PanelTab[] = ['context', 'payload', 'model'];
-  const shown: PanelTab = wide && tab === 'context' ? 'payload' : tab;
+  const tabs: PanelTab[] = ['context', 'payload'];
   const included = snap.context.filter((i) => i.included).length;
   return (
     <>
-      <div className="flex flex-none items-center border-b border-border px-2">
-        <div className="flex" role="tablist" aria-label="Context panel">
+      <div className="flex h-14 flex-none items-center gap-2 border-b border-border px-3">
+        <div
+          className="flex rounded-pill bg-surface-2 p-1"
+          role="tablist"
+          aria-label="Context panel"
+        >
           {tabs.map((t) => (
             <button
               key={t}
               type="button"
               role="tab"
               id={`ctx-tab-${t}`}
-              aria-selected={shown === t}
+              aria-selected={tab === t}
               aria-controls="ctx-panel"
               onClick={() => {
-                if (wide && t === 'context') onWide(false);
                 onTab(t);
               }}
               className={cx(
-                '-mb-px h-11 border-b-2 px-3 text-sm font-semibold',
-                shown === t ? 'border-text text-text' : 'border-transparent text-text-muted',
+                'h-8 rounded-pill px-3.5 text-sm font-medium transition-colors',
+                tab === t ? 'bg-surface text-text shadow-sm' : 'text-text-muted hover:text-text',
               )}
               data-testid={`ctx-tab-${t}`}
             >
-              {t === 'context' ? 'Context' : t === 'payload' ? 'Payload' : 'Model'}
+              {t === 'context' ? 'Context' : 'Exact request'}
             </button>
           ))}
         </div>
@@ -754,34 +706,26 @@ export function ContextPanel({
         <Button
           variant="ghost"
           size="sm"
-          className={cx('max-md:hidden', wide && 'mr-3')}
-          onClick={() => {
-            onWide(!wide);
-          }}
-          data-testid="ctx-wide"
+          aria-label="Close the context panel"
+          className="w-10 px-0"
+          onClick={onClose}
+          data-testid="ctx-close"
         >
-          {wide ? 'Back to the chat' : 'Expand'}
+          ✕
         </Button>
-        {wide ? null : (
-          <Button
-            variant="ghost"
-            size="sm"
-            aria-label="Close the context panel"
-            className="w-10 px-0 max-md:hidden"
-            onClick={onClose}
-          >
-            ✕
-          </Button>
-        )}
       </div>
       <div
         id="ctx-panel"
         role="tabpanel"
-        aria-labelledby={`ctx-tab-${shown}`}
+        aria-labelledby={`ctx-tab-${tab}`}
         className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto p-4"
       >
-        {shown === 'context' ? (
+        {tab === 'context' ? (
           <>
+            <p className="text-sm text-text-muted">
+              Everyone can attach notes, snippets and text files. They go to the model before the
+              prompt; anyone can switch one off.
+            </p>
             <BudgetBar
               budget={data.budget}
               exact={data.exact}
@@ -789,53 +733,15 @@ export function ContextPanel({
               me={snap.me.pid}
               model={modelLabel(snap.model)}
             />
-            <p className="text-xs font-semibold text-text-muted" data-testid="context-count">
+            <p className="text-xs font-medium text-text-muted" data-testid="context-count">
               {included} of {snap.context.length} included
             </p>
             <ContextList session={session} snap={snap} data={data} />
           </>
-        ) : shown === 'payload' ? (
-          <PayloadView session={session} snap={snap} data={data} />
         ) : (
-          <ModelInfo snap={snap} data={data} onChangeModel={onChangeModel} />
+          <PayloadView session={session} snap={snap} data={data} />
         )}
       </div>
     </>
-  );
-}
-
-/** Mockup 05, left side: the context list in the main area. */
-export function ContextWide({
-  session,
-  snap,
-  data,
-}: {
-  session: RoomSession;
-  snap: RoomSnapshot;
-  data: ContextBudget;
-}) {
-  const included = snap.context.filter((i) => i.included).length;
-  return (
-    <div className="mx-auto flex w-full max-w-[864px] flex-col gap-4" data-testid="context-wide">
-      <div className="flex items-center gap-3">
-        <h2 className="text-[22px] font-semibold">Context</h2>
-        <span className="ml-auto inline-flex h-7 items-center rounded-pill bg-surface-2 px-2.5 text-xs font-semibold">
-          {included} of {snap.context.length} included
-        </span>
-      </div>
-      <p className="text-sm text-text-muted">
-        Each person adds their own context. The room decides what goes in. The Payload tab shows
-        exactly what the model receives.
-      </p>
-      <BudgetBar
-        budget={data.budget}
-        exact={data.exact}
-        roster={snap.roster}
-        me={snap.me.pid}
-        model={modelLabel(snap.model)}
-        tall
-      />
-      <ContextList session={session} snap={snap} data={data} wide />
-    </div>
   );
 }

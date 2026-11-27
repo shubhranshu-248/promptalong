@@ -10,10 +10,19 @@ const safe = (uid: string) => uid.replace(/[^A-Za-z0-9_-]/gu, '');
  * underline + tint carry the colour; "Written by X" on hover carries the name (colour is never the
  * only cue).
  */
-export function AuthorStyles({ roster, show }: { roster: Roster; show: boolean }) {
+export function AuthorStyles({
+  roster,
+  show,
+  me,
+}: {
+  roster: Roster;
+  show: boolean;
+  /** this browser's own text stays plain in the live editor: other people's text stands out */
+  me?: string;
+}) {
   if (!show) return null;
   const rules = Object.keys(roster)
-    .filter((uid) => safe(uid) === uid && uid)
+    .filter((uid) => safe(uid) === uid && uid && uid !== me)
     .map((uid) => {
       const c = authorColor(roster, uid);
       return `.pa-show-authors .pa-author[data-author="${uid}"]{text-decoration:underline 2px ${c};text-underline-offset:3px;background:color-mix(in srgb,${c} 12%,transparent)}`;

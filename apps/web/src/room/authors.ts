@@ -4,12 +4,10 @@ import type { RosterEntry } from './session';
 
 export type Roster = Record<string, RosterEntry>;
 
-/** Display name of an author ("you" for this browser), with the room a forked author came from. */
+/** Display name of an author ("you" for this browser). */
 export function authorName(roster: Roster, uid: string, me?: string): string {
   if (uid && uid === me) return 'you';
-  const r = roster[uid];
-  if (!r) return 'someone who left';
-  return r.from ? `${r.name} (from room ${r.from})` : r.name;
+  return roster[uid]?.name ?? 'someone who left';
 }
 
 export function authorColor(roster: Roster, uid: string): string {

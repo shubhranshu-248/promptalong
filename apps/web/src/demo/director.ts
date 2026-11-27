@@ -4,7 +4,6 @@ import { RoomSession } from '../room/session';
 import { DemoBot, pause } from './bot';
 import {
   BOTS,
-  BRANCH_NAME,
   CONTEXT,
   DEMO_CODE,
   DEMO_ROOM_NAME,
@@ -165,21 +164,13 @@ export class DemoDirector {
     await wait(900);
     await meera.sendAndWait(signal);
 
-    // Turn 2: Kabir adds the survey and starts a branch; Meera and Aarav write the next prompt.
+    // Turn 2: Kabir adds the survey; Meera and Aarav write the next prompt.
     await wait(700);
     kabir.addContext(CONTEXT.survey);
-    await Promise.all([
-      (async () => {
-        await wait(400);
-        await meera.type(T2_MEERA, 'end', signal);
-        await aarav.sees(T2_MEERA, signal);
-        await aarav.type(T2_AARAV, 'end', signal);
-      })(),
-      (async () => {
-        await wait(2500);
-        kabir.branch(BRANCH_NAME, 1);
-      })(),
-    ]);
+    await wait(400);
+    await meera.type(T2_MEERA, 'end', signal);
+    await aarav.sees(T2_MEERA, signal);
+    await aarav.type(T2_AARAV, 'end', signal);
     await wait(700);
     const t2 = await meera.send(signal);
 

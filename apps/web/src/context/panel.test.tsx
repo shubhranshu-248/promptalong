@@ -45,10 +45,7 @@ function Harness({ session, start = 'context' }: { session: RoomSession; start?:
       data={data}
       tab={tab}
       onTab={setTab}
-      wide={false}
-      onWide={() => undefined}
       onClose={() => undefined}
-      onChangeModel={() => undefined}
     />
   );
 }
@@ -194,7 +191,7 @@ describe('context panel', () => {
         ownerUid: 'aaaa1111',
         kind: 'file',
         title: 'everything.txt',
-        text: 'word '.repeat(4000),
+        text: 'word '.repeat(8000),
         createdAt: 5,
       });
     });
@@ -203,9 +200,9 @@ describe('context panel', () => {
     await waitFor(() => {
       expect(budget).toHaveAttribute('data-over', 'true');
     });
-    expect(screen.getByTestId('budget-numbers')).toHaveTextContent(/^about [\d,]+ \/ 3,072$/u);
+    expect(screen.getByTestId('budget-numbers')).toHaveTextContent(/^about [\d,]+ \/ 6,144$/u);
     expect(budget).toHaveTextContent('This does not fit. Remove about');
-    expect(budget).toHaveTextContent('4,096 window, 1,024 kept for the answer');
+    expect(budget).toHaveTextContent('8,192 window, 2,048 kept for the answer');
 
     fireEvent.click(await screen.findByRole('checkbox', { name: 'Include everything.txt' }));
     await waitFor(() => {

@@ -1,10 +1,4 @@
-import {
-  MAIN_BRANCH,
-  exportFileName,
-  exportJson,
-  exportMarkdown,
-  turnsOnPath,
-} from '@promptalong/core';
+import { exportFileName, exportJson, exportMarkdown } from '@promptalong/core';
 import { Button, cx } from '@promptalong/ui';
 import { useId, useMemo, useState } from 'react';
 import { DialogShell } from '../room/dialogs';
@@ -14,7 +8,7 @@ type Format = 'md' | 'json';
 
 const PREVIEW_CHARS = 2400;
 
-/** Mockup 07: export one branch as Markdown or JSON. Built here, in the browser. */
+/** Export the conversation as Markdown or JSON. Built here, in the browser. */
 export default function ExportDialog({
   open,
   onOpenChange,
@@ -26,8 +20,7 @@ export default function ExportDialog({
   session: RoomSession;
   snap: RoomSnapshot;
 }) {
-  const ids = { branch: useId(), context: useId(), authors: useId() };
-  const [branch, setBranch] = useState(snap.activeBranch);
+  const ids = { context: useId(), authors: useId() };
   const [format, setFormat] = useState<Format>('md');
   const [includeContext, setIncludeContext] = useState(true);
   const [includeAuthors, setIncludeAuthors] = useState(true);
@@ -35,34 +28,16 @@ export default function ExportDialog({
   // one timestamp per time the dialog is opened, so preview, copy and download are the same text
   const [exportedAt, setExportedAt] = useState(() => Date.now());
 
-  const branchId = snap.branches.some((b) => b.id === branch) ? branch : MAIN_BRANCH;
-  const branchName = (id: string) =>
-    id === MAIN_BRANCH ? 'main' : (snap.branches.find((b) => b.id === id)?.name ?? id);
   const text = useMemo(() => {
     if (!open) return '';
-    const options = { branchId, includeContext, includeAuthors, code: session.code, exportedAt };
+    const options = { includeContext, includeAuthors, code: session.code, exportedAt };
     return format === 'md'
       ? exportMarkdown(session.doc, options)
       : exportJson(session.doc, options);
     // (`snap.turns` changes when the room does: export what is there now)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    open,
-    branchId,
-    includeContext,
-    includeAuthors,
-    format,
-    exportedAt,
-    session,
-    snap.turns,
-    snap.context,
-  ]);
-  const fileName = exportFileName(
-    snap.settings?.name ?? 'room',
-    branchName(branchId),
-    exportedAt,
-    format,
-  );
+  }, [open, includeContext, includeAuthors, format, exportedAt, session, snap.turns, snap.context]);
+  const fileName = exportFileName(snap.settings?.name ?? 'room', exportedAt, format);
 
   const download = () => {
     const blob = new Blob([text], {
@@ -89,7 +64,7 @@ export default function ExportDialog({
     {
       id: 'json',
       title: 'JSON',
-      body: 'Full record: prompt segments with authors, context items, model, timestamps, branch tree.',
+      body: 'Full record: prompt segments with authors, context items, model, timestamps.',
     },
   ];
 
@@ -97,10 +72,7 @@ export default function ExportDialog({
     <DialogShell
       open={open}
       onOpenChange={(o) => {
-        if (o) {
-          setExportedAt(Date.now());
-          setBranch(snap.activeBranch);
-        }
+        if (o) setExportedAt(Date.now());
         onOpenChange(o);
       }}
       title="Export conversation"
@@ -130,29 +102,7 @@ export default function ExportDialog({
         </>
       }
     >
-      <label className="mb-1.5 block text-sm font-semibold" htmlFor={ids.branch}>
-        Branch
-      </label>
-      <select
-        id={ids.branch}
-        value={branchId}
-        onChange={(e) => {
-          setBranch(e.target.value);
-        }}
-        className="h-11 w-full rounded-md border border-border-strong bg-surface px-3 text-[15px] text-text"
-        data-testid="export-branch"
-      >
-        {snap.branches.map((b) => {
-          const count = turnsOnPath(session.doc, b.id).length;
-          return (
-            <option key={b.id} value={b.id}>
-              {branchName(b.id)} · {count} {count === 1 ? 'turn' : 'turns'}
-            </option>
-          );
-        })}
-      </select>
-
-      <fieldset className="mt-4">
+      <fieldset>
         <legend className="mb-1.5 text-sm font-semibold">Format</legend>
         <div className="grid gap-2.5 md:grid-cols-2">
           {formats.map((f) => (

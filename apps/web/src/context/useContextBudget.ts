@@ -2,7 +2,7 @@ import {
   assembleRoom,
   contextBlock,
   contextOwnerName,
-  draftFragment,
+  promptFragment,
   listContextWithText,
   promptBudget,
   tokenBudget,
@@ -33,15 +33,14 @@ export interface ContextBudget {
 }
 
 /**
- * The live request and its token budget for the active branch. Recomputed when the context, the
- * history, the room line, the model or the draft prompt changes - never while an answer streams.
+ * The live request and its token budget. Recomputed when the context, the history, the room line,
+ * the model or the draft prompt changes - never while an answer streams.
  */
 export function useContextBudget(session: RoomSession, snap: RoomSnapshot): ContextBudget {
-  const branch = snap.activeBranch;
   const [draftTick, setDraftTick] = useState(0);
   const [stale, setStale] = useState(false);
   useEffect(() => {
-    const fragment = draftFragment(session.doc, branch);
+    const fragment = promptFragment(session.doc);
     let quiet: ReturnType<typeof setTimeout> | null = null;
     let latest: ReturnType<typeof setTimeout> | null = null;
     const recount = () => {
@@ -66,11 +65,10 @@ export function useContextBudget(session: RoomSession, snap: RoomSnapshot): Cont
       if (latest) clearTimeout(latest);
       setStale(false);
     };
-  }, [session, branch]);
+  }, [session]);
 
   // Everything except the draft that can change the request, as one comparable value.
   const signature = JSON.stringify([
-    branch,
     snap.systemLine,
     snap.context,
     snap.path.map((t) => [t.id, t.status, t.status === 'streaming' ? 0 : t.answer.length]),
@@ -78,9 +76,9 @@ export function useContextBudget(session: RoomSession, snap: RoomSnapshot): Cont
   ]);
 
   const assembled = useMemo(
-    () => assembleRoom(session.doc, branch),
+    () => assembleRoom(session.doc),
     // (the document is read again whenever one of these changes)
-    [session, branch, signature, draftTick],
+    [session, signature, draftTick],
   );
   const blocks = useMemo(
     () =>

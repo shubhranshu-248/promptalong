@@ -76,5 +76,3 @@ export const T3_AARAV_THREE = { before: 'slide titles', text: 'three ' };
 export const T3_AARAV_NOTES = { after: 'slide titles', text: ' with speaker notes' };
 export const T3_MEERA = ' Keep the notes under 40 words each';
 export const T3_KABIR = ', and make the ask from the closing line the last slide.';
-
-export const BRANCH_NAME = 'shorter-version';

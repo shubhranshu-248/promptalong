@@ -1,16 +1,14 @@
 import {
-  MAIN_BRANCH,
-  listBranches,
+  conversation,
   listContext,
   promptFragment,
   promptText,
   readParagraphs,
   readSettings,
-  turnsOnPath,
 } from '@promptalong/core';
 import { MockProvider } from '@promptalong/providers';
 import { DemoDirector } from './director';
-import { BOTS, BRANCH_NAME, CONTEXT, DEMO_ROOM_NAME } from './script';
+import { BOTS, CONTEXT, DEMO_ROOM_NAME } from './script';
 
 const T3 =
   'Now turn this into three slide titles with speaker notes. Keep the notes under 40 words each, and make the ask from the closing line the last slide.';
@@ -35,7 +33,7 @@ describe('DemoDirector', () => {
     });
 
     expect(readSettings(doc)).toMatchObject({ name: DEMO_ROOM_NAME, hostPid: BOTS.meera.pid });
-    const turns = turnsOnPath(doc, MAIN_BRANCH);
+    const turns = conversation(doc);
     expect(turns.map((t) => t.prompt.text)).toEqual([
       'Write a 90-second hackathon pitch for FoundIt, our campus lost-and-found map. Follow the judging criteria.',
       'Make it 2 minutes, add a story about a real student and end with one clear ask for the judges.',
@@ -68,7 +66,6 @@ describe('DemoDirector', () => {
       included: false,
       toggledBy: BOTS.meera.pid,
     });
-    expect(listBranches(doc).map((b) => b.name)).toContain(BRANCH_NAME);
 
     // the people list: three teammates, then the visitor, in the mockup's colours
     const people = director.visitor.getSnapshot().people;
@@ -101,7 +98,7 @@ describe('DemoDirector', () => {
     await sendPrompt(visitor, undefined, undefined, fast.provider);
     await playing;
     expect(director.getPhase()).toBe('your-turn');
-    const turns = turnsOnPath(visitor.doc, MAIN_BRANCH);
+    const turns = conversation(visitor.doc);
     expect(turns.length).toBeGreaterThanOrEqual(3);
     expect(turns.every((t) => t.status === 'done')).toBe(true);
   }, 20_000);

@@ -1,10 +1,10 @@
 /* PromptAlong design tokens - generated from tokens.json, do not edit by hand */
 :root {
-  --c-bg: #F7F6F2;
+  --c-bg: #F4F5F7;
   --c-surface: #FFFFFF;
-  --c-surface-2: #EFEDE7;
-  --c-surface-sunken: #F1EFEA;
-  --c-border: #DAD7CE;
+  --c-surface-2: #ECEEF2;
+  --c-surface-sunken: #EFF1F4;
+  --c-border: #E2E4E9;
   --c-border-strong: #8A8C94;
   --c-text: #16171D;
   --c-text-muted: #5B5D66;
@@ -20,7 +20,7 @@
   --c-warning-bg: #FFF4D6;
   --c-warning-text: #7A4B00;
   --c-stream-caret: #16171D;
-  --c-code-bg: #F1EFEA;
+  --c-code-bg: #EFF1F4;
   --p-1: #DD201F;
   --p-1-label: #FFFFFF;
   --p-2: #3163F1;

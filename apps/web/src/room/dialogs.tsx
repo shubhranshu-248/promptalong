@@ -170,7 +170,7 @@ export function NameField({
         onChange(e.target.value);
       }}
       className={cx(
-        'h-10 w-full rounded-md border bg-surface px-3 text-base text-text',
+        'h-11 w-full rounded-xl border bg-surface px-3.5 text-base text-text',
         invalid ? 'border-danger' : 'border-border-strong',
       )}
     />

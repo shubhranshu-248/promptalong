@@ -2,11 +2,13 @@ import { buttonClass, LogoMark } from '@promptalong/ui';
 import { Link } from 'react-router';
 import { REPO_URL } from '../site';
 
+const link = 'hidden text-sm font-medium text-text-muted no-underline hover:text-text md:inline';
+
 export function SiteNav() {
   return (
     <nav
       aria-label="Main"
-      className="mx-auto flex h-[60px] max-w-[1200px] items-center gap-6 px-4 md:h-[72px] md:px-6"
+      className="mx-auto flex h-[60px] max-w-[1180px] items-center gap-6 px-4 md:h-[72px] md:px-6"
     >
       <Link
         to="/"
@@ -16,20 +18,20 @@ export function SiteNav() {
         PromptAlong
       </Link>
       <span className="flex-1" />
-      <Link
-        to="/demo"
-        className="hidden text-sm font-medium text-text-muted no-underline hover:text-text md:inline"
-      >
+      <Link to="/demo" className={link}>
         Live demo
       </Link>
-      <a
-        href={REPO_URL}
-        className="hidden text-sm font-medium text-text-muted no-underline hover:text-text md:inline"
-      >
+      <Link to="/new#join" className={link}>
+        Join with code
+      </Link>
+      <a href={REPO_URL} className={link}>
         GitHub
       </a>
-      <Link to="/new#join" className={buttonClass({ size: 'sm' })}>
-        Join with code
+      <Link
+        to="/new"
+        className={`${buttonClass({ variant: 'primary', size: 'sm' })} rounded-pill px-4`}
+      >
+        Start a room
       </Link>
     </nav>
   );

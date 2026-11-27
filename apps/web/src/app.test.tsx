@@ -14,7 +14,8 @@ describe('landing page', () => {
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(
       'Everyone prompts.One answer.',
     );
-    expect(screen.getByRole('link', { name: 'Start a room' })).toHaveAttribute('href', '/new');
+    for (const link of screen.getAllByRole('link', { name: 'Start a room' }))
+      expect(link).toHaveAttribute('href', '/new');
     expect(screen.getByRole('link', { name: 'Try the live demo' })).toHaveAttribute(
       'href',
       '/demo',
@@ -28,6 +29,13 @@ describe('landing page', () => {
     expect(screen.getByRole('region', { name: 'Who it is for' })).toBeInTheDocument();
     expect(screen.getByRole('region', { name: 'See it in action' })).toBeInTheDocument();
     expect(screen.getAllByRole('heading', { level: 2 })).toHaveLength(8);
+    expect(screen.queryByText(/branch/iu)).toBeNull();
+  });
+
+  it('the footer credits both builders', () => {
+    renderAt('/');
+    expect(screen.getByTestId('made-by')).toHaveTextContent('Made with by Shubh and Sidak');
+    expect(screen.getByRole('img', { name: 'love' })).toBeInTheDocument();
   });
 });
 

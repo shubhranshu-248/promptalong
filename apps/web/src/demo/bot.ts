@@ -1,14 +1,11 @@
 import {
-  MAIN_BRANCH,
   addContextItem,
-  createBranch,
-  draftFragment,
   listContext,
   listTurns,
+  promptFragment,
   randomId,
   readLock,
   setContextIncluded,
-  turnsOnPath,
   type ContextKind,
 } from '@promptalong/core';
 import type { Provider } from '@promptalong/providers';
@@ -70,7 +67,7 @@ export class DemoBot {
 
   /** The text node of the prompt's first paragraph (the one shared text node, see initRoom). */
   private textNode(): Y.XmlText | null {
-    const paragraph = draftFragment(this.session.doc, MAIN_BRANCH).get(0);
+    const paragraph = promptFragment(this.session.doc).get(0);
     if (!(paragraph instanceof Y.XmlElement)) return null;
     const text = paragraph.get(0);
     return text instanceof Y.XmlText ? text : null;
@@ -166,20 +163,6 @@ export class DemoBot {
   exclude(title: string): void {
     const item = listContext(this.session.doc).find((i) => i.title === title);
     if (item) setContextIncluded(this.session.doc, item.id, false, this.pid);
-  }
-
-  /** A branch from the n-th turn on main (1 = the first). */
-  branch(name: string, fromTurn: number): void {
-    const from = turnsOnPath(this.session.doc, MAIN_BRANCH)[fromTurn - 1];
-    if (!from) return;
-    createBranch(this.session.doc, {
-      id: randomId(),
-      name,
-      fromTurnId: from.id,
-      sourceBranch: MAIN_BRANCH,
-      by: this.pid,
-      at: Date.now(),
-    });
   }
 
   /**

@@ -1,22 +1,12 @@
 import {
-  MAIN_BRANCH,
   RoomSync,
   StreamCoordinator,
-  activeBranch,
-  activeBranchBy,
-  applyFork,
   chooseSlot,
-  listBranches,
+  conversation,
   listContext,
-  listMergeEvents,
   listTurns,
-  readAuthors,
   turnLabels,
-  turnsOnPath,
-  type BranchView,
   type ContextItemView,
-  type ForkPayload,
-  type MergeEvent,
   readLock,
   readRoomModel,
   initRoom,
@@ -80,18 +70,12 @@ export interface RoomSnapshot {
   /** who holds Send (null = free) */
   lock: LockHolder | null;
   model: RoomModelChoice;
-  branches: BranchView[];
-  /** the branch the shared editor shows */
-  activeBranch: string;
-  /** who last switched the room's branch */
-  activeBranchBy: string | null;
-  /** the active branch's history, oldest first */
+  /** the conversation, oldest first */
   path: TurnView[];
-  /** short turn labels: T1, T2, T3b… */
+  /** short turn labels: T1, T2, T3… */
   labels: Record<string, string>;
-  /** everyone who ever wrote here: people of this room + frozen authors of a forked room */
+  /** everyone who ever wrote here (people of this room, also those who left) */
   roster: Record<string, RosterEntry>;
-  merges: MergeEvent[];
   /** the room's context items, in creation order (their text stays in the document) */
   context: ContextItemView[];
   /** the room line sent before everything else ('' = none) */
@@ -109,15 +93,11 @@ export interface RoomSnapshot {
 export interface RosterEntry {
   name: string;
   slot: number;
-  /** set for authors copied from another room by a fork */
-  from?: string;
 }
 
 export interface CreateOptions {
   name: string;
   sendPolicy: SendPolicy;
-  /** the turns and authors copied from another room (Fork room) */
-  fork?: ForkPayload;
 }
 
 export interface LocalStore {
@@ -231,13 +211,9 @@ export class RoomSession {
       turns: [],
       lock: null,
       model: readModelChoice(undefined),
-      branches: [],
-      activeBranch: MAIN_BRANCH,
-      activeBranchBy: null,
       path: [],
       labels: {},
       roster: {},
-      merges: [],
       context: [],
       systemLine: '',
       locked: deps.access?.room.locked ?? false,
@@ -277,9 +253,7 @@ export class RoomSession {
     this.doc.getMap('settings').observe(this.onSettings);
     this.doc.getMap('turns').observeDeep(this.onTurns);
     this.doc.getMap('lock').observe(this.onSettings);
-    for (const name of ['branches', 'authors', 'people'])
-      this.doc.getMap(name).observe(this.onTurns);
-    this.doc.getArray('events').observe(this.onTurns);
+    this.doc.getMap('people').observe(this.onTurns);
     this.doc.getMap('context').observeDeep(this.onSettings);
     this.doc.getMap('access').observe(this.onAccess);
     this.sync.onState(this.onSyncState);
@@ -317,9 +291,7 @@ export class RoomSession {
     this.doc.getMap('settings').unobserve(this.onSettings);
     this.doc.getMap('turns').unobserveDeep(this.onTurns);
     this.doc.getMap('lock').unobserve(this.onSettings);
-    for (const name of ['branches', 'authors', 'people'])
-      this.doc.getMap(name).unobserve(this.onTurns);
-    this.doc.getArray('events').unobserve(this.onTurns);
+    this.doc.getMap('people').unobserve(this.onTurns);
     this.doc.getMap('context').unobserveDeep(this.onSettings);
     this.doc.getMap('access').unobserve(this.onAccess);
     this.doc.off('update', this.onDocUpdate);
@@ -529,13 +501,12 @@ export class RoomSession {
   };
 
   private createRoom(create: CreateOptions): void {
-    const created = initRoom(this.doc, {
+    initRoom(this.doc, {
       name: create.name,
       sendPolicy: create.sendPolicy,
       hostPid: this.deps.pid,
       createdAt: (this.deps.now ?? Date.now)(),
     });
-    if (created && create.fork) applyFork(this.doc, create.fork);
   }
 
   private readonly onAwareness = () => {
@@ -641,10 +612,7 @@ export class RoomSession {
     const wasFull = this.snapshot.full;
     const turns = listTurns(this.doc);
     const model = readModelChoice(readRoomModel(this.doc));
-    const branch = activeBranch(this.doc);
     const roster: Record<string, RosterEntry> = {};
-    for (const [pid, a] of readAuthors(this.doc))
-      roster[pid] = { name: a.name, slot: a.slot, from: a.from };
     peopleMap(this.doc).forEach((rec, pid) => {
       if (typeof rec === 'object' && typeof rec.name === 'string' && typeof rec.slot === 'number') {
         roster[pid] = { name: rec.name, slot: rec.slot };
@@ -659,13 +627,9 @@ export class RoomSession {
       turns,
       lock,
       model,
-      branches: listBranches(this.doc),
-      activeBranch: branch,
-      activeBranchBy: activeBranchBy(this.doc),
-      path: turnsOnPath(this.doc, branch),
+      path: conversation(this.doc),
       labels: Object.fromEntries(turnLabels(this.doc)),
       roster,
-      merges: listMergeEvents(this.doc),
       context: listContext(this.doc),
       systemLine: readSystemLine(this.doc),
       locked: this.managed ? readLocked(this.doc) || this.initiallyLocked() : false,
