@@ -1,7 +1,7 @@
 import { CONTEXT_MAX_BYTES, cleanContextText } from '@promptalong/core';
 
 /**
- * Reads a context file in the browser (ADR-005): .txt or .md, UTF-8, at most 200 KB. Nothing is
+ * Reads a context file in the browser (ADR-005): .txt or .md, UTF-8, at most 1 MB. Nothing is
  * uploaded anywhere; the text goes into the room document like a pasted snippet.
  */
 export type FileProblem = 'type' | 'too-large' | 'not-text' | 'empty';
@@ -18,7 +18,7 @@ export function fileProblemMessage(problem: FileProblem, name: string): string {
     case 'type':
       return `"${name}" is not a .txt or .md file. Only plain text can be added.`;
     case 'too-large':
-      return `"${name}" is larger than 200 KB. Trim it, or paste the part that matters.`;
+      return `"${name}" is larger than 1 MB. Trim it, or paste the part that matters.`;
     case 'not-text':
       return `"${name}" is not UTF-8 text.`;
     case 'empty':
@@ -55,5 +55,7 @@ export async function readContextFile(file: {
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${String(bytes)} B`;
   const kb = bytes / 1024;
-  return `${kb < 10 ? kb.toFixed(1) : String(Math.round(kb))} KB`;
+  if (kb < 1024) return `${kb < 10 ? kb.toFixed(1) : String(Math.round(kb))} KB`;
+  const mb = kb / 1024;
+  return `${mb < 10 ? mb.toFixed(1) : String(Math.round(mb))} MB`;
 }

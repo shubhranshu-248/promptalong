@@ -21,7 +21,7 @@ describe('context files', () => {
     expect((await readContextFile(file('Notes.MD', '# नोट्स'))).ok).toBe(true);
   });
 
-  it('refuses other file types, files over 200 KB, binary data and empty files', async () => {
+  it('refuses other file types, files over 1 MB, binary data and empty files', async () => {
     expect(await readContextFile(file('slides.pdf', 'x'))).toMatchObject({
       ok: false,
       problem: 'type',
@@ -55,5 +55,6 @@ describe('context files', () => {
     expect(formatBytes(412)).toBe('412 B');
     expect(formatBytes(1638)).toBe('1.6 KB');
     expect(formatBytes(204_800)).toBe('200 KB');
+    expect(formatBytes(1024 * 1024)).toBe('1.0 MB');
   });
 });

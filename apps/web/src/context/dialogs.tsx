@@ -94,7 +94,7 @@ function ItemForm({
         data-testid="item-text"
       />
       <p className={cx('mt-1.5 text-xs', tooLarge ? 'text-danger' : 'text-text-muted')}>
-        {formatBytes(bytes)} of 200 KB
+        {formatBytes(bytes)} of 1 MB
         {readOnly ? ' · only the person who added it can change it' : ''}
       </p>
       {problem ? (

@@ -1,4 +1,4 @@
-import type { Transport } from '@promptalong/core';
+import { ChunkedTransport, type Transport } from '@promptalong/core';
 import { RelayTransport } from '../realtime/relay-transport';
 import { getPid } from '../room/identity';
 import {
@@ -82,7 +82,7 @@ export class RelayBackend implements RoomBackend {
   }
 
   transport(room: RoomInfo): Transport {
-    return new RelayTransport(this.wsUrl, room.id, getPid());
+    return new ChunkedTransport(new RelayTransport(this.wsUrl, room.id, getPid()));
   }
 
   private async action(fn: string, body: Record<string, unknown>): Promise<ActionResult> {

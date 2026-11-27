@@ -139,7 +139,7 @@ export function readTurn(id: string, turn: Y.Map<unknown>): TurnView | null {
     createdAt,
     sentBy,
     senderName: str(turn.get('senderName'), 24) ?? '',
-    prompt: { text: str(prompt.text, 100_000) ?? '', spans: readSpans(prompt.spans) },
+    prompt: { text: str(prompt.text, 1_000_000) ?? '', spans: readSpans(prompt.spans) },
     provider: {
       kind: str(provider.kind, 16) ?? 'mock',
       model: str(provider.model, 200) ?? '',

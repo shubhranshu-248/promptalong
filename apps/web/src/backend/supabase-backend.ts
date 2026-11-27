@@ -1,4 +1,4 @@
-import type { Transport } from '@promptalong/core';
+import { ChunkedTransport, type Transport } from '@promptalong/core';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { SupabaseTransport } from '../realtime/supabase-transport';
 import {
@@ -130,7 +130,8 @@ export class SupabaseBackend implements RoomBackend {
   }
 
   transport(room: RoomInfo): Transport {
-    return new SupabaseTransport(() => this.getClient(), `room:${room.id}`);
+    // big changes go in parts: a broadcast may be at most 256 KB on the free plan
+    return new ChunkedTransport(new SupabaseTransport(() => this.getClient(), `room:${room.id}`));
   }
 
   private async ensureUser(): Promise<string | null> {

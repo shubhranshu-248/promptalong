@@ -124,12 +124,17 @@ export function findEndpoint(id: string | undefined): Endpoint | undefined {
   return ENDPOINTS.find((e) => e.id === id);
 }
 
-/** Small open models that run in the browser (prebuilt for the in-browser engine). */
+/**
+ * Small open models that run in the browser (prebuilt for the in-browser engine). The engine's
+ * default window is 4,096; these windows are passed to it when the model starts (a bigger window
+ * needs more graphics memory, so they stay within what the models were trained for and a laptop
+ * can hold).
+ */
 export const WEBLLM_MODELS: readonly ModelInfo[] = [
   {
     id: 'Qwen2.5-0.5B-Instruct-q4f16_1-MLC',
     label: 'Qwen 2.5 0.5B (smallest)',
-    contextWindow: 4096,
+    contextWindow: 16_384,
     tokenizer: 'exact',
     free: true,
     sizeMb: 945,
@@ -137,7 +142,7 @@ export const WEBLLM_MODELS: readonly ModelInfo[] = [
   {
     id: 'Llama-3.2-1B-Instruct-q4f16_1-MLC',
     label: 'Llama 3.2 1B',
-    contextWindow: 4096,
+    contextWindow: 16_384,
     tokenizer: 'exact',
     free: true,
     sizeMb: 880,
@@ -145,7 +150,7 @@ export const WEBLLM_MODELS: readonly ModelInfo[] = [
   {
     id: 'SmolLM2-360M-Instruct-q4f16_1-MLC',
     label: 'SmolLM2 360M (fastest)',
-    contextWindow: 4096,
+    contextWindow: 8192,
     tokenizer: 'exact',
     free: true,
     sizeMb: 376,
@@ -158,7 +163,7 @@ export const MOCK_MODELS: readonly ModelInfo[] = [
   {
     id: 'mock-pitch-coach',
     label: 'Demo model (scripted)',
-    contextWindow: 8192,
+    contextWindow: 1_048_576,
     tokenizer: 'approx',
     free: true,
   },

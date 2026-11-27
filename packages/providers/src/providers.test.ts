@@ -4,7 +4,9 @@ import {
   DEFAULT_MODEL,
   ENDPOINTS,
   MockProvider,
+  OLLAMA_MAX_CONTEXT,
   OllamaProvider,
+  ollamaContextFor,
   ProviderError,
   WebLlmProvider,
   mockChunks,
@@ -87,7 +89,7 @@ describe('catalog and room choice', () => {
   });
 
   it('limits: the context window and how tokens can be counted before sending', () => {
-    expect(modelLimits(DEFAULT_MODEL)).toEqual({ contextWindow: 8192, counting: 'estimate' });
+    expect(modelLimits(DEFAULT_MODEL)).toEqual({ contextWindow: 1_048_576, counting: 'estimate' });
     expect(modelLimits({ kind: 'byok', endpoint: 'openai', model: 'gpt-4o-mini' })).toEqual({
       contextWindow: 128_000,
       counting: 'encoding',
@@ -98,12 +100,16 @@ describe('catalog and room choice', () => {
       counting: 'estimate',
     });
     expect(modelLimits({ kind: 'webllm', model: 'SmolLM2-360M-Instruct-q4f16_1-MLC' })).toEqual({
-      contextWindow: 4096,
+      contextWindow: 8192,
       counting: 'engine',
     });
-    // a model the catalog does not know (any local one) gets the small default window
+    expect(modelLimits({ kind: 'webllm', model: 'Qwen2.5-0.5B-Instruct-q4f16_1-MLC' })).toEqual({
+      contextWindow: 16_384,
+      counting: 'engine',
+    });
+    // a model the catalog does not know (any local one) gets the large default window
     expect(modelLimits({ kind: 'ollama', model: 'llama3.2' })).toEqual({
-      contextWindow: 8192,
+      contextWindow: 131_072,
       counting: 'estimate',
     });
   });
@@ -325,11 +331,22 @@ describe('ollama provider', () => {
     expect(await p.available()).toEqual({ ok: true });
     expect((await p.listModels()).map((m) => m.id)).toEqual(['llama3.2:latest']);
     const body = p.buildRequestBody({ ...req('x'), model: 'llama3.2:latest', temperature: 0.2 });
-    expect(JSON.parse(body)).toMatchObject({ stream: true, options: { temperature: 0.2 } });
+    expect(JSON.parse(body)).toMatchObject({
+      stream: true,
+      options: { temperature: 0.2, num_ctx: 8192 },
+    });
     const chunks = await collect(p.stream(body, new AbortController().signal));
     expect(text(chunks)).toBe('Hi there');
     expect(chunks.at(-1)).toEqual({ text: '', done: true, usage: { input: 9, output: 2 } });
     expect(calls.every((u) => u.startsWith('http://localhost:11434/'))).toBe(true);
+  });
+
+  it('asks for a context that holds the request (Ollama would cut it otherwise)', () => {
+    const msg = (chars: number) => [{ role: 'user' as const, content: 'a'.repeat(chars) }];
+    expect(ollamaContextFor(msg(10))).toBe(8192);
+    expect(ollamaContextFor(msg(30_000))).toBe(16_384);
+    expect(ollamaContextFor(msg(300_000))).toBe(131_072);
+    expect(ollamaContextFor(msg(5_000_000))).toBe(OLLAMA_MAX_CONTEXT);
   });
 
   it('not running -> not available', async () => {

@@ -7,6 +7,22 @@ import type { ChatRequest, ModelInfo, Provider, StreamChunk } from './types';
  * Ollama must allow this site's origin (OLLAMA_ORIGINS).
  */
 export const OLLAMA_URL = 'http://localhost:11434';
+/** the largest context PromptAlong asks Ollama for */
+export const OLLAMA_MAX_CONTEXT = 131_072;
+
+/**
+ * Ollama keeps a small default context (a few thousand tokens) and silently cuts what does not
+ * fit. Each request asks for a context that holds it: its size estimated at 3 characters a token,
+ * plus room for the answer, rounded up to a power of two (8,192 at least, 131,072 at most), so a
+ * short chat does not reserve memory it does not need.
+ */
+export function ollamaContextFor(messages: readonly { content: string }[]): number {
+  const chars = messages.reduce((n, m) => n + m.content.length, 0);
+  const need = Math.ceil(chars / 3) + 4096;
+  let size = 8192;
+  while (size < need && size < OLLAMA_MAX_CONTEXT) size *= 2;
+  return size;
+}
 
 export interface OllamaOptions {
   baseUrl?: string;
@@ -45,7 +61,7 @@ export class OllamaProvider implements Provider {
         .map((name) => ({
           id: name,
           label: name,
-          contextWindow: 8192,
+          contextWindow: OLLAMA_MAX_CONTEXT,
           tokenizer: 'approx' as const,
           free: true,
         }));
@@ -74,7 +90,7 @@ export class OllamaProvider implements Provider {
   }
 
   buildRequestBody(req: ChatRequest): string {
-    const options: Record<string, number> = {};
+    const options: Record<string, number> = { num_ctx: ollamaContextFor(req.messages) };
     if (req.maxTokens !== undefined) options.num_predict = req.maxTokens;
     if (req.temperature !== undefined) options.temperature = req.temperature;
     const body: Record<string, unknown> = {
@@ -82,7 +98,7 @@ export class OllamaProvider implements Provider {
       messages: req.messages,
       stream: true,
     };
-    if (Object.keys(options).length > 0) body.options = options;
+    body.options = options;
     return JSON.stringify(body);
   }
 
