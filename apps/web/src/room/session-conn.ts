@@ -240,12 +240,20 @@ export class SessionConn {
   /** Opened on screen (caret and name shown here) or put in the background. */
   setVisible(visible: boolean): void {
     if (this.visible === visible) return;
+    if (!visible) {
+      // back to idle while still on screen, so the room's people list hears it too (a pending
+      // "stop typing" timer would fire after this session is hidden and be ignored)
+      if (this.typingTimer) {
+        clearTimeout(this.typingTimer);
+        this.typingTimer = null;
+      }
+      this.setActivity('idle');
+    }
     this.visible = visible;
     if (visible) {
       this.publishMe();
       this.markSeen();
     } else {
-      this.setActivity('idle');
       this.awareness.setLocalState(null);
     }
     this.refresh();

@@ -151,6 +151,25 @@ describe('sessions of a room', () => {
     await until(() => b.room.conn(general)?.getSnapshot().people.length === 0);
   });
 
+  it('switching sessions right after typing does not leave "typing" behind', async () => {
+    const world = new MemoryServer(new MemoryHub());
+    const a = await enter(world, 'aarav', 1, true);
+    const b = await enter(world, 'meera', 2);
+    await until(() => b.room.getSnapshot().sessions.length === 1);
+    const general = a.room.getSnapshot().sessions[0]?.id ?? '';
+    await ready(a.room, general);
+    const res = await a.room.createSession('Code', ['aarav', 'meera']);
+    if (!res.ok) throw new Error(res.reason);
+    a.room.setActive(general);
+    const aarav = () => b.room.getSnapshot().people.find((p) => p.pid === 'aarav')?.activity;
+    a.room.setActivity('typing');
+    await until(() => aarav() === 'typing');
+    // within the 1.5 s "still typing" window, Aarav opens another session
+    a.room.setActive(res.session.id);
+    await until(() => aarav() === 'idle');
+    expect(a.room.getSnapshot().people.find((p) => p.me)?.activity).toBe('idle');
+  });
+
   it('room context reaches every session; a session can switch an item off for itself', async () => {
     const world = new MemoryServer(new MemoryHub());
     const a = await enter(world, 'aarav', 1, true);
