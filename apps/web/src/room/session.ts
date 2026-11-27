@@ -378,6 +378,7 @@ export class RoomSession {
     this.deps.remember?.set(`promptalong:active:${this.code}`, id);
     this.awareness.setLocalStateField('viewing', id);
     this.update({ activeId: id });
+    this.refresh(); // this person's own row says where they are
     this.refreshSessions();
   }
 
@@ -503,6 +504,7 @@ export class RoomSession {
       this.awareness.setLocalStateField('viewing', active);
     }
     this.update({ activeId: active, sessionsLoaded: true });
+    this.refresh();
     this.refreshSessions();
   }
 

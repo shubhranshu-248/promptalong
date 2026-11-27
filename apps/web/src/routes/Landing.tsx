@@ -1,6 +1,7 @@
 import { AvatarStack, buttonClass, type Person } from '@promptalong/ui';
 import type { CSSProperties, ReactNode } from 'react';
 import { Link } from 'react-router';
+import { MadeWith } from '../components/MadeWith';
 import { SiteFooter } from '../components/SiteFooter';
 import { SiteNav } from '../components/SiteNav';
 
@@ -217,7 +218,15 @@ export function Landing() {
           </div>
         </section>
       </main>
-      <SiteFooter />
+      <SiteFooter credit={false} />
+      {/* the credit line stays on the home screen, in both themes */}
+      <div className="h-16" aria-hidden="true" />
+      <div className="pointer-events-none fixed inset-x-0 bottom-0 z-30 flex justify-center pb-[max(12px,env(safe-area-inset-bottom))]">
+        <MadeWith
+          className="pointer-events-auto rounded-pill border border-border bg-surface/90 px-4 py-1.5 text-sm shadow-sm backdrop-blur"
+          testId="made-by-pinned"
+        />
+      </div>
     </>
   );
 }

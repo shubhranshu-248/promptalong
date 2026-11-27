@@ -32,10 +32,16 @@ describe('landing page', () => {
     expect(screen.queryByText(/branch/iu)).toBeNull();
   });
 
-  it('the footer credits both builders', () => {
+  it('the home page keeps the credit line on screen; other pages have it in the footer', async () => {
     renderAt('/');
-    expect(screen.getByTestId('made-by')).toHaveTextContent('Made with by Shubh and Sidak');
-    expect(screen.getByRole('img', { name: 'love' })).toBeInTheDocument();
+    const pinned = screen.getByTestId('made-by-pinned');
+    expect(pinned).toHaveTextContent('Made with by Shubh and Sidak');
+    // the heart takes the text colour (black on light, white on dark)
+    expect(pinned).toHaveClass('text-text');
+    expect(pinned.querySelector('path')?.getAttribute('fill')).toBe('currentColor');
+    expect(screen.getAllByRole('img', { name: 'love' })).toHaveLength(1);
+    renderAt('/about');
+    expect((await screen.findAllByTestId('made-by')).length).toBeGreaterThan(0);
   });
 });
 

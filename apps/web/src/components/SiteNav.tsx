@@ -1,6 +1,7 @@
 import { buttonClass, LogoMark } from '@promptalong/ui';
 import { Link } from 'react-router';
 import { REPO_URL } from '../site';
+import { ThemeToggle } from './ThemeToggle';
 
 const link = 'hidden text-sm font-medium text-text-muted no-underline hover:text-text md:inline';
 
@@ -27,6 +28,7 @@ export function SiteNav() {
       <a href={REPO_URL} className={link}>
         GitHub
       </a>
+      <ThemeToggle className="-mx-3" />
       <Link
         to="/new"
         className={`${buttonClass({ variant: 'primary', size: 'sm' })} rounded-pill px-4`}

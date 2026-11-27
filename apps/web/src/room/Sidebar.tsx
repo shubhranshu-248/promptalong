@@ -3,7 +3,16 @@ import { formatRoomCode } from '@promptalong/core';
 import { LogoMark, cx, initials } from '@promptalong/ui';
 import { useState, type ReactNode } from 'react';
 import { Link } from 'react-router';
-import { CheckIcon, CloseIcon, LinkIcon, LockIcon, MoreIcon, PlusIcon, SidebarIcon } from './icons';
+import {
+  CheckIcon,
+  CloseIcon,
+  LinkIcon,
+  LockIcon,
+  MoreIcon,
+  PlusIcon,
+  SearchIcon,
+  SidebarIcon,
+} from './icons';
 import type { PersonView } from './session';
 
 const ACTIVITY: Record<PersonView['activity'], string> = {
@@ -160,6 +169,7 @@ export function Sidebar({
   onRename,
   sessions,
   sessionName,
+  onSearch,
 }: {
   open: boolean;
   onClose: () => void;
@@ -178,6 +188,7 @@ export function Sidebar({
   /** the session list (rooms with several sessions, or a host who can add one) */
   sessions?: ReactNode;
   sessionName?: (id: string) => string | null;
+  onSearch?: () => void;
 }) {
   const [copied, copy] = useCopied();
   const link = `${window.location.origin}/r/${code}`;
@@ -225,6 +236,20 @@ export function Sidebar({
           <PlusIcon />
           New room
         </Link>
+        {onSearch ? (
+          <button
+            type="button"
+            onClick={onSearch}
+            className="flex h-10 w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-sm font-medium text-text hover:bg-surface-2"
+            data-testid="open-search"
+          >
+            <SearchIcon />
+            <span className="flex-1">Search</span>
+            <kbd className="rounded border border-border px-1.5 font-mono text-[11px] text-text-muted max-lg:hidden">
+              {/Mac|iPhone|iPad/u.test(navigator.userAgent) ? '⌘K' : 'Ctrl K'}
+            </kbd>
+          </button>
+        ) : null}
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-3 pt-4 pb-3">

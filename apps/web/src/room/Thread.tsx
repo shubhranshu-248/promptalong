@@ -450,6 +450,7 @@ export function Thread({
             key={turn.id}
             className="flex flex-col gap-5"
             aria-label={`Turn ${String(i + 1)}`}
+            data-turn={turn.id}
           >
             <PromptBubble turn={turn} people={people} ctx={ctx} onEdit={actions.onEdit} />
             {others.length === 0 ? (
@@ -465,6 +466,7 @@ export function Thread({
                   <div
                     key={t.id}
                     className="flex min-w-0 flex-col gap-2 rounded-xl border border-border p-3.5"
+                    data-turn={t.id === turn.id ? undefined : t.id}
                   >
                     <p className="text-xs font-semibold text-text-muted">{t.provider.label}</p>
                     {answer(t)}

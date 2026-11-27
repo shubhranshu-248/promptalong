@@ -132,8 +132,9 @@ describe('sessions of a room', () => {
     await until(() => b.room.getSnapshot().sessions.find((s) => s.id === code)?.unread === 2);
     // where people are is shown in the room
     await until(() => b.room.getSnapshot().people.find((p) => p.pid === 'aarav')?.viewing === code);
-    // opening it reads it
+    // opening it reads it, and Meera's own row says where she is
     b.room.setActive(code);
+    expect(b.room.getSnapshot().people.find((p) => p.me)?.viewing).toBe(code);
     expect(b.room.getSnapshot().sessions.find((s) => s.id === code)?.unread).toBe(0);
     expect(b.room.getSnapshot().sessions.find((s) => s.id === general)?.unread).toBe(0);
     expect(b.room.conn(code)?.getSnapshot().turns).toHaveLength(1);

@@ -97,6 +97,13 @@ export const LinkIcon = () => (
   </Icon>
 );
 
+export const SearchIcon = () => (
+  <Icon>
+    <circle cx="11" cy="11" r="6.5" />
+    <path d="M16 16l4.5 4.5" />
+  </Icon>
+);
+
 export const CompareIcon = () => (
   <Icon>
     <rect x="3" y="5" width="7.5" height="14" rx="1.5" />

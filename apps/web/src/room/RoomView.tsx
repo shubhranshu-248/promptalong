@@ -19,7 +19,16 @@ import {
   type RoomModelChoice,
 } from '@promptalong/providers';
 import { Button, buttonClass, cx } from '@promptalong/ui';
-import { Suspense, lazy, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  Suspense,
+  lazy,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import * as Y from 'yjs';
 import { ContextPanel, type PanelTab } from '../context/ContextPanel';
@@ -29,7 +38,13 @@ import { useKeyStore } from '../keys/useKeyStore';
 import { AddKeyDialog, ModelDialog } from '../models/ModelDialog';
 import { isWebLlmReady } from '../models/webllm-state';
 import { realtimeConfig } from '../realtime';
-import { getThemePreference, setThemePreference, type ThemePreference } from '../theme';
+import { ThemeToggle } from '../components/ThemeToggle';
+import {
+  getThemePreference,
+  onThemeChange,
+  setThemePreference,
+  type ThemePreference,
+} from '../theme';
 import { RoomBlocked } from './access';
 import { Composer } from './Composer';
 import { DialogShell, RenameDialog, ShareDialog } from './dialogs';
@@ -40,6 +55,7 @@ import type { PersonView, RoomSession, RoomSnapshot } from './session';
 import type { SessionConn, SessionSnapshot } from './session-conn';
 import { PinDialog, PinnedList } from './Pins';
 import { sessionProblem } from './session-problem';
+import { SearchDialog } from './SearchDialog';
 import { SessionDialog, SessionList, type Candidate } from './Sessions';
 import type { SessionView } from './session';
 import { Avatar, Sidebar } from './Sidebar';
@@ -125,7 +141,7 @@ function RoomMenu({
   lock?: { locked: boolean; toggle: () => void } | undefined;
   onDelete?: (() => void) | undefined;
 }) {
-  const [theme, setTheme] = useState<ThemePreference>(getThemePreference);
+  const theme = useSyncExternalStore(onThemeChange, getThemePreference);
   return (
     <Menu.Root>
       <Menu.Trigger asChild>
@@ -182,7 +198,6 @@ function RoomMenu({
             value={theme}
             onValueChange={(v) => {
               const pref: ThemePreference = v === 'light' || v === 'dark' ? v : 'system';
-              setTheme(pref);
               setThemePreference(pref);
             }}
           >
@@ -478,6 +493,19 @@ function RoomWorkspace({
   const [deleting, setDeleting] = useState<SessionView | null>(null);
   const [openPin, setOpenPin] = useState<PinView | null>(null);
   const [comparing, setComparing] = useState<TurnView | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setSearchOpen(true);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+    };
+  }, []);
   // what is new in the other sessions shows in the browser tab, so a background tab says so
   const unreadElsewhere = snap.sessions
     .filter((s) => s.id !== conn.id)
@@ -693,6 +721,9 @@ function RoomWorkspace({
           setRenameOpen(true);
         }}
         sessionName={sessionName}
+        onSearch={() => {
+          setSearchOpen(true);
+        }}
         sessions={
           <>
             {several || canManage ? (
@@ -796,6 +827,7 @@ function RoomWorkspace({
               <span className="md:hidden">Share</span>
             </button>
           )}
+          <ThemeToggle className="ml-1" />
           <RoomMenu
             onShare={
               demo
@@ -1150,6 +1182,37 @@ function RoomWorkspace({
             : "The room, its saved copy and everyone's seat are deleted from the server now. People who have it open are sent out. Copies already saved on their devices are not touched. Export first if you want to keep the conversation."}
         </p>
       </DialogShell>
+      <SearchDialog
+        open={searchOpen}
+        onOpenChange={setSearchOpen}
+        sources={() =>
+          snap.sessions
+            .flatMap((s) => {
+              const c = session.conn(s.id)?.getSnapshot();
+              return c ? [{ id: s.id, name: s.name, turns: c.path, labels: c.labels }] : [];
+            })
+            .sort((a, b) => Number(b.id === conn.id) - Number(a.id === conn.id))
+        }
+        onPick={(hit) => {
+          session.setActive(hit.sessionId);
+          if (!matchesMedia('(min-width: 1100px)')) setSidebarOpen(false);
+          // the session's thread draws on the next frames: then the turn is shown and marked
+          let tries = 0;
+          const find = () => {
+            const el = document.querySelector<HTMLElement>(`[data-turn="${hit.turnId}"]`);
+            if (!el) {
+              if (tries++ < 30) requestAnimationFrame(find);
+              return;
+            }
+            el.scrollIntoView({ block: 'center' });
+            el.classList.add('pa-found');
+            setTimeout(() => {
+              el.classList.remove('pa-found');
+            }, 2000);
+          };
+          requestAnimationFrame(find);
+        }}
+      />
       <PinDialog
         pin={openPin}
         onClose={() => {

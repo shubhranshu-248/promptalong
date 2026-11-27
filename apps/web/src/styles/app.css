@@ -196,3 +196,16 @@
   background: var(--c-surface-2);
   font-weight: 600;
 }
+
+/* a turn found by search: marked for a moment */
+.pa-found {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 8px;
+  border-radius: 12px;
+  transition: outline-color 300ms;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pa-found {
+    transition: none;
+  }
+}
