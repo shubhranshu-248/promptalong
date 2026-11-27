@@ -14,6 +14,7 @@ import {
 import {
   DEFAULT_MODEL,
   findEndpoint,
+  modelLabel,
   type ProviderKind,
   type RoomModelChoice,
 } from '@promptalong/providers';
@@ -51,6 +52,40 @@ const ExportDialog = lazy(() => import('../export/ExportDialog'));
 
 const menuItem =
   'flex cursor-default items-center gap-2.5 rounded-md px-3 py-2.5 text-sm font-medium outline-none data-[highlighted]:bg-surface-2';
+
+/**
+ * Puts an earlier prompt back into the (empty) shared prompt, each part marked with the person who
+ * wrote it, so it can be changed and sent again. False when the shared prompt has text.
+ */
+function restorePrompt(
+  session: SessionConn,
+  text: string,
+  spans: { from: number; to: number; uid: string }[],
+): boolean {
+  const paragraph = promptFragment(session.doc).get(0);
+  if (!(paragraph instanceof Y.XmlElement)) return false;
+  const node = paragraph.get(0);
+  if (!(node instanceof Y.XmlText)) return false;
+  const now = (node.toDelta() as { insert?: unknown }[])
+    .map((d) => (typeof d.insert === 'string' ? d.insert : ''))
+    .join('');
+  if (now.trim().length > 0) return false;
+  session.doc.transact(() => {
+    node.delete(0, node.length);
+    let at = 0;
+    const sorted = [...spans].sort((a, b) => a.from - b.from);
+    for (const s of sorted) {
+      if (s.from > at) node.insert(node.length, text.slice(at, s.from));
+      node.insert(node.length, text.slice(Math.max(at, s.from), s.to), { author: { uid: s.uid } });
+      at = Math.max(at, s.to);
+    }
+    if (at < text.length) node.insert(node.length, text.slice(at));
+  });
+  requestAnimationFrame(() => {
+    document.querySelector<HTMLElement>('[data-testid="prompt-editor"]')?.focus();
+  });
+  return true;
+}
 
 /** Adds text to the end of the shared prompt, marked as written by `uid`. */
 function addToPrompt(session: SessionConn, text: string, uid: string): void {
@@ -442,6 +477,7 @@ function RoomWorkspace({
   const [sessionDialog, setSessionDialog] = useState<{ editing: SessionView | null } | null>(null);
   const [deleting, setDeleting] = useState<SessionView | null>(null);
   const [openPin, setOpenPin] = useState<PinView | null>(null);
+  const [comparing, setComparing] = useState<TurnView | null>(null);
   // what is new in the other sessions shows in the browser tab, so a background tab says so
   const unreadElsewhere = snap.sessions
     .filter((s) => s.id !== conn.id)
@@ -590,6 +626,20 @@ function RoomWorkspace({
       me: pid === me.pid,
     }))
     .sort((a, b) => Number(b.me) - Number(a.me) || a.name.localeCompare(b.name));
+  const { shortened, left } = context.assembled.fitted;
+  const fitNote =
+    shortened.length + left.length === 0
+      ? null
+      : `To fit ${modelLabel(model)}, ${[
+          shortened.length > 0
+            ? `${String(shortened.length)} older ${shortened.length === 1 ? 'turn is' : 'turns are'} sent shortened`
+            : '',
+          left.length > 0
+            ? `${String(left.length)} of the oldest ${left.length === 1 ? 'is' : 'are'} left out`
+            : '',
+        ]
+          .filter(Boolean)
+          .join(' and ')}. Exact request shows what is sent.`;
   const sessionName = (id: string) =>
     several ? (snap.sessions.find((s) => s.id === id)?.name ?? null) : null;
   const others = snap.people.length - 1;
@@ -832,6 +882,22 @@ function RoomWorkspace({
                     onUpdateKey: (turn: TurnView) => {
                       openModel(turn.provider.kind === 'byok' ? 'byok' : undefined);
                     },
+                    onEdit: (turn: TurnView) => {
+                      if (!restorePrompt(conn, turn.prompt.text, turn.prompt.spans)) {
+                        setNotice(
+                          'The shared prompt already has text. Send it or clear it first, then press Edit again.',
+                        );
+                      }
+                    },
+                    onCompare: (turn: TurnView) => {
+                      // a long draft does not matter here: the comparison sends an earlier prompt
+                      const why = blocked?.startsWith('Too long') ? null : blocked;
+                      if (why) {
+                        setNotice(why);
+                        return;
+                      }
+                      setComparing(turn);
+                    },
                     isPinned: (turn: TurnView) => pinOf(session.doc, conn.id, turn.id) !== null,
                     onPin: (turn: TurnView) => {
                       const existing = pinOf(session.doc, conn.id, turn.id);
@@ -901,14 +967,21 @@ function RoomWorkspace({
                     : 'Write the next prompt together…'
                 }
                 below={
-                  <ModelNotice
-                    model={model}
-                    people={snap.people}
-                    needsKey={needsKey}
-                    onChange={() => {
-                      openModel();
-                    }}
-                  />
+                  <>
+                    {fitNote ? (
+                      <p className="px-2 pt-1.5 text-xs text-text-muted" data-testid="fit-note">
+                        {fitNote}
+                      </p>
+                    ) : null}
+                    <ModelNotice
+                      model={model}
+                      people={snap.people}
+                      needsKey={needsKey}
+                      onChange={() => {
+                        openModel();
+                      }}
+                    />
+                  </>
                 }
                 onSend={() => {
                   send();
@@ -969,6 +1042,37 @@ function RoomWorkspace({
           // sessions that never picked their own (and new ones) start with the latest choice
           setRoomModel(session.doc, { ...choice, setBy: me.pid });
           setNotice(null);
+        }}
+      />
+      <ModelDialog
+        open={comparing !== null}
+        onOpenChange={(o) => {
+          if (!o) setComparing(null);
+        }}
+        current={model}
+        myName={me.name}
+        title="Compare with another model"
+        action="Send to this model"
+        description="The same prompt, with the same context and history, goes to the model you pick. Both answers show side by side; the session's model does not change."
+        onUse={(choice: RoomModelChoice) => {
+          const turn = comparing;
+          setComparing(null);
+          if (!turn) return;
+          if (choice.kind === 'webllm' && !isWebLlmReady(choice.model)) {
+            setNotice('Start the in-browser model first, then compare again.');
+            return;
+          }
+          void sendPrompt(
+            conn,
+            { text: turn.prompt.text, spans: turn.prompt.spans },
+            (text) => tokensFor.current(text),
+            undefined,
+            { choice, compareOf: turn.id },
+          ).then((r) => {
+            if (!r.ok && (r.reason === 'lost' || r.reason === 'busy')) {
+              setNotice(`${r.holder?.name ?? 'Someone else'} pressed Send first.`);
+            }
+          });
         }}
       />
       <AddKeyDialog

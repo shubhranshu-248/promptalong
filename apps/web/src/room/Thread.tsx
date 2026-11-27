@@ -4,7 +4,7 @@ import { cx } from '@promptalong/ui';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { AttributedText } from './AuthorText';
 import { authorsOf, type Roster } from './authors';
-import { CheckIcon, CopyIcon, PinIcon, RetryIcon } from './icons';
+import { CheckIcon, CompareIcon, CopyIcon, PinIcon, RetryIcon } from './icons';
 import { Markdown } from './Markdown';
 import type { PersonView } from './session';
 
@@ -12,6 +12,10 @@ export interface ThreadActions {
   onRetry: (turn: TurnView) => void;
   onChangeModel: () => void;
   onUpdateKey: (turn: TurnView) => void;
+  /** put this prompt back in the shared prompt, with its authors, to change and send again */
+  onEdit?: (turn: TurnView) => void;
+  /** send this prompt to a second model and show both answers side by side */
+  onCompare?: (turn: TurnView) => void;
   /** keep this answer for the whole room (or take the pin away) */
   onPin?: (turn: TurnView) => void;
   isPinned?: (turn: TurnView) => boolean;
@@ -80,10 +84,12 @@ function PromptBubble({
   turn,
   people,
   ctx,
+  onEdit,
 }: {
   turn: TurnView;
   people: PersonView[];
   ctx: ThreadContext;
+  onEdit?: ((turn: TurnView) => void) | undefined;
 }) {
   const me = people.find((p) => p.me)?.pid;
   const writers = authorsOf(turn.prompt.spans);
@@ -125,6 +131,18 @@ function PromptBubble({
           />
         </p>
       </div>
+      {onEdit ? (
+        <button
+          type="button"
+          onClick={() => {
+            onEdit(turn);
+          }}
+          className="rounded-md px-2 py-1 text-xs font-medium text-text-muted hover:bg-surface-2 hover:text-text"
+          data-testid="edit-prompt"
+        >
+          Edit and send again
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -296,6 +314,17 @@ function Answer({
             >
               <RetryIcon />
             </ActionButton>
+            {actions.onCompare && !turn.compareOf && turn.status === 'done' ? (
+              <ActionButton
+                label="Compare with another model"
+                testId="compare-answer"
+                onClick={() => {
+                  actions.onCompare?.(turn);
+                }}
+              >
+                <CompareIcon />
+              </ActionButton>
+            ) : null}
             {actions.onPin && turn.answer ? (
               <ActionButton
                 label={actions.isPinned?.(turn) ? 'Unpin from the room' : 'Pin to the room'}
@@ -385,24 +414,67 @@ export function Thread({
   }, [lastLength, lastId]);
 
   const status = last ? last.status : null;
+  // a comparison is shown next to the turn it compares with, under one prompt
+  const groups: { turn: TurnView; others: TurnView[] }[] = [];
+  const byId = new Map<string, { turn: TurnView; others: TurnView[] }>();
+  for (const t of turns) {
+    const host = t.compareOf ? byId.get(t.compareOf) : undefined;
+    if (host) {
+      host.others.push(t);
+      continue;
+    }
+    const g = { turn: t, others: [] as TurnView[] };
+    byId.set(t.id, g);
+    groups.push(g);
+  }
   return (
     <div
       ref={box}
       className="mx-auto flex w-full max-w-[760px] flex-col gap-9"
       data-testid="thread"
     >
-      {turns.map((turn, i) => (
-        <section key={turn.id} className="flex flex-col gap-5" aria-label={`Turn ${String(i + 1)}`}>
-          <PromptBubble turn={turn} people={people} ctx={ctx} />
+      {groups.map(({ turn, others }, i) => {
+        const lastHere = turns.at(-1)?.id;
+        const answer = (t: TurnView) => (
           <Answer
-            turn={turn}
+            key={t.id}
+            turn={t}
             people={people}
             roster={ctx.roster}
             actions={actions}
-            isLast={i === turns.length - 1}
+            isLast={t.id === lastHere}
           />
-        </section>
-      ))}
+        );
+        return (
+          <section
+            key={turn.id}
+            className="flex flex-col gap-5"
+            aria-label={`Turn ${String(i + 1)}`}
+          >
+            <PromptBubble turn={turn} people={people} ctx={ctx} onEdit={actions.onEdit} />
+            {others.length === 0 ? (
+              answer(turn)
+            ) : (
+              <div
+                className="grid gap-4 md:grid-cols-2"
+                data-testid="compare"
+                role="group"
+                aria-label="Answers from different models"
+              >
+                {[turn, ...others].map((t) => (
+                  <div
+                    key={t.id}
+                    className="flex min-w-0 flex-col gap-2 rounded-xl border border-border p-3.5"
+                  >
+                    <p className="text-xs font-semibold text-text-muted">{t.provider.label}</p>
+                    {answer(t)}
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        );
+      })}
       <p className="sr-only" aria-live="polite">
         {status === 'streaming'
           ? 'An answer is streaming.'

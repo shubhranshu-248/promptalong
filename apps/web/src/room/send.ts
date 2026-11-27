@@ -8,6 +8,7 @@ import {
 import {
   ProviderError,
   modelLabel,
+  modelLimits,
   scrubSecrets,
   type Provider,
   type RoomModelChoice,
@@ -55,9 +56,11 @@ export function sendPrompt(
   tokens?: (text: string) => { tokens: number; exact: boolean } | null,
   /** the model to call instead of the room's one (the demo's scripted people use a fast demo model in tests) */
   override?: Provider,
+  /** another model than the session's (a comparison), and the turn it compares with */
+  extra?: { choice?: RoomModelChoice; compareOf?: string },
 ): Promise<SendResult> {
   const snap = session.getSnapshot();
-  const choice = snap.model;
+  const choice = extra?.choice ?? snap.model;
   const provider = override ?? providerFor(choice);
   const text = retry?.text ?? promptText(session.doc).trim();
   return session.stream.send({
@@ -70,6 +73,8 @@ export function sendPrompt(
       ...(choice.endpoint ? { endpoint: choice.endpoint } : {}),
     },
     buildBody: (messages) => buildBody(choice, messages),
+    contextWindow: modelLimits(choice).contextWindow,
+    ...(extra?.compareOf ? { compareOf: extra.compareOf } : {}),
     ...(tokens ? { tokens } : {}),
     stream: (body, signal) => provider.stream(body, signal),
     clearPrompt: retry === undefined,

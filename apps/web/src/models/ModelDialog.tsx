@@ -152,6 +152,10 @@ interface ModelDialogProps {
   onUse: (choice: RoomModelChoice) => void;
   /** open with this option selected (e.g. "download the in-browser model first") */
   focus?: ProviderKind;
+  /** the dialog's title and button (default: the session's model) */
+  title?: string;
+  action?: string;
+  description?: string;
 }
 
 /** Mounted only while open, so every opening starts from the room's current choice. */
@@ -159,7 +163,17 @@ export function ModelDialog(props: ModelDialogProps) {
   return props.open ? <OpenModelDialog {...props} /> : null;
 }
 
-function OpenModelDialog({ open, onOpenChange, current, myName, onUse, focus }: ModelDialogProps) {
+function OpenModelDialog({
+  open,
+  onOpenChange,
+  current,
+  myName,
+  onUse,
+  focus,
+  title = 'Model for this session',
+  action = 'Use for this session',
+  description = 'Everyone sees the same answer. Only the person who presses Send needs access to the model.',
+}: ModelDialogProps) {
   const ids = {
     endpoint: useId(),
     model: useId(),
@@ -287,8 +301,8 @@ function OpenModelDialog({ open, onOpenChange, current, myName, onUse, focus }: 
       open={open}
       onOpenChange={onOpenChange}
       wide
-      title="Model for this session"
-      description="Everyone sees the same answer. Only the person who presses Send needs access to the model."
+      title={title}
+      description={description}
       footer={
         <>
           <Dialog.Close asChild>
@@ -301,7 +315,7 @@ function OpenModelDialog({ open, onOpenChange, current, myName, onUse, focus }: 
             }}
             disabled={kind === 'webllm' && !webGpu}
           >
-            Use for this session
+            {action}
           </Button>
         </>
       }

@@ -97,6 +97,13 @@ export const LinkIcon = () => (
   </Icon>
 );
 
+export const CompareIcon = () => (
+  <Icon>
+    <rect x="3" y="5" width="7.5" height="14" rx="1.5" />
+    <rect x="13.5" y="5" width="7.5" height="14" rx="1.5" />
+  </Icon>
+);
+
 export const PinIcon = () => (
   <Icon>
     <path d="M9 4h6l-1 6 3 3H7l3-3-1-6z" />

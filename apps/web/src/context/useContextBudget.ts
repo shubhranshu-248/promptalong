@@ -84,10 +84,11 @@ export function useContextBudget(
     Object.entries(snap.roster).map(([pid, r]) => [pid, r.name]),
   ]);
 
+  const limits = modelLimits(ss.model);
   const assembled = useMemo(
-    () => assembleRoom(session.doc, { room: room.doc }),
+    () => assembleRoom(session.doc, { room: room.doc, contextWindow: limits.contextWindow }),
     // (the document is read again whenever one of these changes)
-    [room, session, signature, draftTick],
+    [room, session, signature, draftTick, limits.contextWindow],
   );
   const blocks = useMemo(
     () =>
@@ -101,7 +102,6 @@ export function useContextBudget(
     [room, session, signature],
   );
 
-  const limits = modelLimits(ss.model);
   const engine = useWebLlmState();
   const engineReady =
     limits.counting === 'engine' && engine.status === 'ready' && engine.model === ss.model.model;

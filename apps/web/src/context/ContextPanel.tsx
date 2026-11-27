@@ -713,6 +713,12 @@ export function PayloadView({
               <summary className="cursor-pointer">
                 history ({historyTurns.map((id) => ss.labels[id] ?? '?').join(', ')} + answers) …{' '}
                 {n(historyTokens)} tokens
+                {assembled.fitted.shortened.length > 0
+                  ? ` · ${assembled.fitted.shortened.map((id) => ss.labels[id] ?? '?').join(', ')} shortened`
+                  : ''}
+                {assembled.fitted.left.length > 0
+                  ? ` · ${assembled.fitted.left.map((id) => ss.labels[id] ?? '?').join(', ')} left out to fit`
+                  : ''}
               </summary>
               {history.map((s, i) => (
                 <p key={i} className="mt-1.5">
