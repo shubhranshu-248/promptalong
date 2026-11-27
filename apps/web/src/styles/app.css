@@ -16,6 +16,56 @@
 @import '@fontsource/jetbrains-mono/latin-400.css';
 @import '@fontsource/jetbrains-mono/latin-500.css';
 
+/*
+ * Fallback faces sized like the site fonts (computed from the font files against Arial / Courier
+ * New: average width over English text, then ascent and descent). Text set before the web fonts
+ * arrive takes the same room, so nothing jumps when they do (layout shift, Card 25b).
+ */
+@font-face {
+  font-family: 'Inter Fallback';
+  src: local('Arial'), local('ArialMT'), local('Liberation Sans');
+  font-weight: 100 549;
+  size-adjust: 106.81%;
+  ascent-override: 90.7%;
+  descent-override: 22.58%;
+  line-gap-override: 0%;
+}
+@font-face {
+  font-family: 'Inter Fallback';
+  src: local('Arial Bold'), local('Arial-BoldMT'), local('Liberation Sans Bold');
+  font-weight: 550 900;
+  size-adjust: 102.26%;
+  ascent-override: 94.74%;
+  descent-override: 23.59%;
+  line-gap-override: 0%;
+}
+@font-face {
+  font-family: 'Space Grotesk Fallback';
+  src: local('Arial'), local('ArialMT'), local('Liberation Sans');
+  font-weight: 100 549;
+  size-adjust: 109.36%;
+  ascent-override: 89.98%;
+  descent-override: 26.7%;
+  line-gap-override: 0%;
+}
+@font-face {
+  font-family: 'Space Grotesk Fallback';
+  src: local('Arial Bold'), local('Arial-BoldMT'), local('Liberation Sans Bold');
+  font-weight: 550 900;
+  size-adjust: 101.67%;
+  ascent-override: 96.78%;
+  descent-override: 28.72%;
+  line-gap-override: 0%;
+}
+@font-face {
+  font-family: 'JetBrains Mono Fallback';
+  src: local('Courier New'), local('CourierNewPSMT'), local('Liberation Mono');
+  size-adjust: 99.98%;
+  ascent-override: 102.02%;
+  descent-override: 30%;
+  line-gap-override: 0%;
+}
+
 @utility caret-blink {
   animation: caret-blink 1060ms steps(1) infinite;
   @media (prefers-reduced-motion: reduce) {
