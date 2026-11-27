@@ -267,6 +267,17 @@ test.describe('export', () => {
       await expect(dialog.getByTestId('export-preview')).toContainText('## Turn 1 - sent by Aarav');
       expect(await axe(meera.page)).toEqual([]);
 
+      // PDF is the first choice: a real PDF, made in the browser
+      const [pdf] = await Promise.all([
+        meera.page.waitForEvent('download'),
+        dialog.getByTestId('export-download').click(),
+      ]);
+      expect(pdf.suggestedFilename()).toMatch(/^hackathon-pitch-\d{4}-\d{2}-\d{2}\.pdf$/u);
+      const bytes = await readFile(await pdf.path());
+      expect(bytes.subarray(0, 5).toString('latin1')).toBe('%PDF-');
+      expect(bytes.length).toBeGreaterThan(5000); // fonts are embedded
+
+      await dialog.getByText('Markdown', { exact: true }).click();
       const [md] = await Promise.all([
         meera.page.waitForEvent('download'),
         dialog.getByTestId('export-download').click(),

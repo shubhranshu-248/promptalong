@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises';
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { closeAll, createRoom, editor, joinRoom, person, promptText, type Person } from './helpers';
@@ -105,6 +106,75 @@ test.describe('sessions', () => {
       await expect(aarav.page.getByTestId('session-item')).toHaveCount(1); // General only
     } finally {
       await closeAll(people);
+    }
+  });
+});
+
+test.describe('PDF export of a room with sessions', () => {
+  test('one PDF for the room, a zip of one PDF per session, Hindi noticed, print view', async ({
+    browser,
+  }) => {
+    const aarav = await person(browser, 'Aarav');
+    try {
+      await aarav.page.addInitScript(() => {
+        // the print dialog is the browser's: here it only records that it was asked for
+        window.print = () => {
+          (window as unknown as { printed: number }).printed =
+            ((window as unknown as { printed?: number }).printed ?? 0) + 1;
+        };
+      });
+      await createRoom(aarav);
+      await editor(aarav).click();
+      await aarav.page.keyboard.type('/short इसे हिन्दी में लिखिए');
+      await aarav.page.getByTestId('send-button').click();
+      await expect(aarav.page.getByTestId('turn-answer')).toHaveCount(1);
+      await newSession(aarav, 'Slides', []);
+      await editor(aarav).click();
+      await aarav.page.keyboard.type('/short Three slide titles');
+      await aarav.page.getByTestId('send-button').click();
+      await expect(aarav.page.getByTestId('turn-answer')).toHaveCount(1);
+
+      await aarav.page.getByRole('button', { name: 'Room menu' }).click();
+      await aarav.page.getByRole('menuitem', { name: 'Export' }).click();
+      const dialog = aarav.page.getByRole('dialog', { name: 'Export conversation' });
+      await dialog.getByTestId('export-range-room').check();
+      await expect(dialog.getByTestId('export-hindi')).toBeVisible();
+      const [one] = await Promise.all([
+        aarav.page.waitForEvent('download'),
+        dialog.getByTestId('export-download').click(),
+      ]);
+      expect(one.suggestedFilename()).toMatch(/\.pdf$/u);
+      const pdf = await readFile(await one.path());
+      expect(pdf.subarray(0, 5).toString('latin1')).toBe('%PDF-');
+
+      await dialog.getByTestId('export-range-each').check();
+      await expect(dialog.getByTestId('export-download')).toHaveText('Download PDFs (.zip)');
+      const [zip] = await Promise.all([
+        aarav.page.waitForEvent('download'),
+        dialog.getByTestId('export-download').click(),
+      ]);
+      expect(zip.suggestedFilename()).toMatch(/\.zip$/u);
+      const z = await readFile(await zip.path());
+      expect(z.subarray(0, 2).toString('latin1')).toBe('PK');
+      const names = z.toString('latin1').match(/hackathon-pitch-[a-z-]+-\d{4}-\d{2}-\d{2}\.pdf/gu);
+      expect(new Set(names)).toEqual(
+        new Set([
+          expect.stringMatching(/^hackathon-pitch-general-/u),
+          expect.stringMatching(/^hackathon-pitch-slides-/u),
+        ]),
+      );
+
+      // the print view: the browser's own fonts, then the print dialog
+      await dialog.getByTestId('export-print').click();
+      const view = aarav.page.getByTestId('print-view');
+      await expect(view).toContainText('Slides');
+      await expect(view).toContainText('इसे हिन्दी में लिखिए');
+      await expect(view.getByTestId('print-credit')).toContainText('by Shubh and Sidak');
+      await expect
+        .poll(() => aarav.page.evaluate(() => (window as unknown as { printed?: number }).printed))
+        .toBe(1);
+    } finally {
+      await closeAll([aarav]);
     }
   });
 });
