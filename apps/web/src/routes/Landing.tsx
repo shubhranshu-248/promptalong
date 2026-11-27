@@ -29,10 +29,19 @@ const USPS = [
   },
 ] as const;
 
-const STEPS = [
-  { title: 'Start a room', body: 'Share the link or the 6-letter code with your team.' },
-  { title: 'Write together', body: 'Everyone edits the same prompt and adds their own context.' },
-  { title: 'Send once', body: 'One answer streams to everyone and is saved with who wrote what.' },
+const USE_CASES = [
+  {
+    title: 'Hackathon teams',
+    body: 'Co-write the prompt in one room instead of copy-pasting between screens.',
+  },
+  {
+    title: 'Study groups',
+    body: 'Ask questions together, see who added what, and branch the conversation to explore.',
+  },
+  {
+    title: 'Project teams',
+    body: 'Attach each person\'s context, see the exact payload, and keep the conversation tree.',
+  },
 ] as const;
 
 type Slot = 1 | 2 | 3;
@@ -145,27 +154,40 @@ export function Landing() {
         </section>
 
         <section
-          id="how"
-          aria-label="How it works"
-          className="mx-auto grid max-w-[1200px] grid-cols-1 gap-6 px-4 pt-2 pb-10 md:grid-cols-3 md:px-6 md:pt-6 md:pb-16"
+          aria-label="Who it is for"
+          className="mx-auto grid max-w-[1200px] grid-cols-1 gap-6 px-4 pt-2 pb-6 md:grid-cols-3 md:px-6 md:pt-6 md:pb-10"
         >
-          {STEPS.map((s, i) => (
+          {USE_CASES.map((s) => (
             <div key={s.title} className="flex gap-3.5">
               <span
                 aria-hidden="true"
-                className="grid size-8 flex-none place-items-center rounded-full bg-text font-display text-sm leading-none font-bold text-bg"
+                className="grid size-8 flex-none place-items-center rounded-full bg-accent-soft font-display text-sm leading-none font-bold text-accent"
               >
-                {i + 1}
+                →
               </span>
               <div>
-                <h2 className="text-lg font-bold">
-                  <span className="sr-only">Step {i + 1}: </span>
-                  {s.title}
-                </h2>
+                <h2 className="text-lg font-bold">{s.title}</h2>
                 <p className="text-sm text-text-muted">{s.body}</p>
               </div>
             </div>
           ))}
+        </section>
+
+        <section
+          aria-label="See it in action"
+          className="mx-auto flex max-w-[1200px] flex-col items-center gap-4 px-4 pt-2 pb-10 text-center md:px-6 md:pt-4 md:pb-16"
+        >
+          <h2 className="text-xl font-bold">See it in action</h2>
+          <p className="max-w-[460px] text-sm text-text-muted">
+            Three scripted teammates join, everyone types at once, one person sends. No sign-up, no
+            model account - runs entirely in your browser.
+          </p>
+          <Link
+            to="/demo"
+            className={buttonClass({ variant: 'primary', size: 'lg' })}
+          >
+            Open the live demo
+          </Link>
         </section>
       </main>
       <SiteFooter />

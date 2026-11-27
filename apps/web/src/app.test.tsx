@@ -22,10 +22,12 @@ describe('landing page', () => {
     expect(screen.getByRole('link', { name: 'Join with code' })).toBeInTheDocument();
   });
 
-  it('lists the four differences and three steps', () => {
+  it('lists the four differences, three use cases and a demo CTA', () => {
     renderAt('/');
     expect(screen.getByRole('region', { name: 'What makes it different' })).toBeInTheDocument();
-    expect(screen.getAllByRole('heading', { level: 2 })).toHaveLength(7);
+    expect(screen.getByRole('region', { name: 'Who it is for' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'See it in action' })).toBeInTheDocument();
+    expect(screen.getAllByRole('heading', { level: 2 })).toHaveLength(8);
   });
 });
 

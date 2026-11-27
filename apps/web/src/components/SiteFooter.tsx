@@ -4,7 +4,12 @@ import { REPO_URL } from '../site';
 export function SiteFooter() {
   return (
     <footer className="mx-auto flex max-w-[1200px] flex-wrap items-center gap-x-4 gap-y-2 border-t border-border px-4 py-5 text-sm text-text-muted md:px-6">
-      <span className="flex-1">PromptAlong - an open-source project by Shubhranshu Sahu</span>
+      <span className="flex-1">
+        PromptAlong - built by Shubhranshu Sahu and Sidak Kaur Gurpreet Singh Sachdev
+      </span>
+      <Link to="/demo" className="text-text-muted underline hover:text-text">
+        Demo
+      </Link>
       <Link to="/about" className="text-text-muted underline hover:text-text">
         About
       </Link>

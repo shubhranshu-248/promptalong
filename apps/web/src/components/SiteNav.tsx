@@ -16,12 +16,12 @@ export function SiteNav() {
         PromptAlong
       </Link>
       <span className="flex-1" />
-      <a
-        href="/#how"
+      <Link
+        to="/demo"
         className="hidden text-sm font-medium text-text-muted no-underline hover:text-text md:inline"
       >
-        How it works
-      </a>
+        Live demo
+      </Link>
       <a
         href={REPO_URL}
         className="hidden text-sm font-medium text-text-muted no-underline hover:text-text md:inline"
