@@ -13,6 +13,7 @@ import {
   promptText,
   readLock,
   sha256Hex,
+  turnLabels,
   type CoordinatorOptions,
   type SendRequest,
   type StreamChunkLike,
@@ -159,6 +160,38 @@ describe('shared stream', () => {
     ]);
     const turns = listTurns(a.doc);
     expect(turns[1]?.parentId).toBe(turns[0]?.id);
+  });
+
+  it('a comparison: same prompt and history to a second model, kept out of later history', async () => {
+    const { peers } = await room(2);
+    const [a, b] = peers;
+    if (!a || !b) return;
+    const m = model(['first answer']);
+    await a.co.send(request(m.stream, 'first'));
+    await until(() => listTurns(b.doc)[0]?.status === 'done' && readLock(b.doc) === null);
+    const first = listTurns(a.doc)[0]?.id ?? '';
+    const other = model(['other answer']);
+    const res = await b.co.send({
+      ...request(other.stream, 'first'),
+      clearPrompt: false,
+      compareOf: first,
+    });
+    expect(res.ok).toBe(true);
+    await until(() => listTurns(a.doc)[1]?.status === 'done' && readLock(a.doc) === null);
+    // the second model got exactly what the first one got
+    expect(other.seen[0]?.body).toBe(m.seen[0]?.body);
+    expect(listTurns(a.doc)[1]?.compareOf).toBe(first);
+    expect([...turnLabels(a.doc).values()]).toEqual(['T1', 'T1b']);
+    // the next Send has the first answer in its history, not both
+    await a.co.send(request(m.stream, 'second'));
+    await until(() => listTurns(b.doc)[2]?.status === 'done');
+    const body = JSON.parse(m.seen[1]?.body ?? '{}') as { messages: unknown[] };
+    expect(body.messages).toEqual([
+      { role: 'user', content: 'first' },
+      { role: 'assistant', content: 'first answer' },
+      { role: 'user', content: 'second' },
+    ]);
+    expect([...turnLabels(a.doc).values()]).toEqual(['T1', 'T1b', 'T2']);
   });
 
   it('Send is locked while someone else is streaming', async () => {

@@ -1,5 +1,7 @@
 import type * as Y from 'yjs';
+import { FIT_CHARS_PER_TOKEN, fitHistory } from '../history/fit';
 import { historyEntries } from '../history/history';
+import { messageOverhead, promptBudget } from './budget';
 import { fragmentWithSpans, trimWithSpans, type Span } from '../provenance/spans';
 import { promptFragment, peopleMap } from '../room/doc';
 import {
@@ -76,6 +78,8 @@ export interface Assembled {
   /** the included items, in the order they are sent */
   items: AssembledItem[];
   systemLine: string;
+  /** turns sent shortened, and turns left out, so the request fits the model */
+  fitted: { shortened: string[]; left: string[] };
 }
 
 export const CONTEXT_SEPARATOR = '\n\n';
@@ -143,7 +147,7 @@ export function assemble(input: AssembleInput): Assembled {
 
   segments.push({ kind: 'prompt', role: 'user', text: input.prompt, message: messages.length });
   messages.push({ role: 'user', content: input.prompt });
-  return { messages, segments, items, systemLine };
+  return { messages, segments, items, systemLine, fitted: { shortened: [], left: [] } };
 }
 
 /** The draft prompt as Send freezes it: trimmed, with its author spans. */
@@ -202,20 +206,37 @@ export function sessionContextItems(doc: Y.Doc, room: Y.Doc | null = null): Scop
 
 export function assembleRoom(
   doc: Y.Doc,
-  options: { prompt?: string; room?: Y.Doc | null } = {},
+  options: {
+    prompt?: string;
+    room?: Y.Doc | null;
+    /** the model's window: older turns are shortened or left out to fit it (none = all whole) */
+    contextWindow?: number;
+    /** send the history as it was before this turn (a comparison of it) */
+    historyBefore?: string;
+  } = {},
 ): Assembled {
   const room = options.room ?? null;
   const people = room ?? doc;
   const lines = room ? [readSystemLine(room), readSystemLine(doc)] : [readSystemLine(doc)];
   const items = sessionContextItems(doc, room);
-  return assemble({
+  const input = {
     systemLine: lines
       .map((l) => l.trim())
       .filter(Boolean)
       .join(CONTEXT_SEPARATOR),
     items,
-    ownerName: (uid) => contextOwnerName(people, uid),
-    history: historyEntries(doc),
+    ownerName: (uid: string) => contextOwnerName(people, uid),
+    history: historyEntries(doc, options.historyBefore),
     prompt: options.prompt ?? draftPrompt(doc).text,
-  });
+  };
+  if (options.contextWindow === undefined) return assemble(input);
+  // everything but the history, then the room left for it
+  const bare = assemble({ ...input, history: [] });
+  const fixed = bare.messages.reduce((n, m) => n + m.content.length, 0);
+  const messages = bare.messages.length + input.history.length * 2;
+  const space =
+    (promptBudget(options.contextWindow) - messageOverhead(messages)) * FIT_CHARS_PER_TOKEN - fixed;
+  const fit = fitHistory(input.history, Math.max(0, space));
+  const out = assemble({ ...input, history: fit.entries });
+  return { ...out, fitted: { shortened: fit.shortened, left: fit.left } };
 }

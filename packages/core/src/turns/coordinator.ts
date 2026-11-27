@@ -50,6 +50,10 @@ export interface SendRequest {
   /** a token count this browser already has for a text (null = not counted yet) */
   tokens?: (text: string) => { tokens: number; exact: boolean } | null;
   stream: (body: string, signal: AbortSignal) => AsyncIterable<StreamChunkLike>;
+  /** the model's window: older turns are shortened to fit, as the context panel shows */
+  contextWindow?: number;
+  /** answer this earlier turn's prompt again with another model, side by side */
+  compareOf?: string;
   /** clear the shared prompt when the turn starts (normal Send) - false for Retry */
   clearPrompt: boolean;
   /** turns a thrown error into something safe to show to everyone */
@@ -177,7 +181,12 @@ export class StreamCoordinator {
     const fromDraft = req.clearPrompt ? draftPrompt(this.doc) : null;
     const sent = fromDraft?.text ? fromDraft : { text: req.promptText, spans: req.spans ?? [] };
     // The same function the context panel shows: room line, included context, history, prompt.
-    const assembled = assembleRoom(this.doc, { prompt: sent.text, room: this.o.room() });
+    const assembled = assembleRoom(this.doc, {
+      prompt: sent.text,
+      room: this.o.room(),
+      ...(req.contextWindow !== undefined ? { contextWindow: req.contextWindow } : {}),
+      ...(req.compareOf ? { historyBefore: req.compareOf } : {}),
+    });
     const body = req.buildBody(assembled.messages);
     const context: TurnContextRecord[] = assembled.items.map((item) => {
       const counted = req.tokens?.(item.block) ?? null;
@@ -209,6 +218,7 @@ export class StreamCoordinator {
         requestHash: '',
         context,
         systemLine: assembled.systemLine,
+        ...(req.compareOf ? { compareOf: req.compareOf } : {}),
       });
       lockMap(this.doc).set('current', { ...claim, turnId, beat: 1 });
       if (req.clearPrompt) clearPrompt(this.doc);

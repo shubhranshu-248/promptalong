@@ -33,10 +33,19 @@ export function conversation(doc: Y.Doc): TurnView[] {
   return out.reverse();
 }
 
-/** The finished turns the model receives before the new prompt, oldest first. */
-export function historyEntries(doc: Y.Doc): { turnId: string; prompt: string; answer: string }[] {
+/**
+ * The finished turns the model receives before the new prompt, oldest first. A comparison (the
+ * same prompt answered by a second model) is not part of the history: the first answer is.
+ * `before` stops at a turn (a comparison is sent with the history its turn had).
+ */
+export function historyEntries(
+  doc: Y.Doc,
+  before?: string,
+): { turnId: string; prompt: string; answer: string }[] {
   const out: { turnId: string; prompt: string; answer: string }[] = [];
   for (const t of conversation(doc)) {
+    if (t.id === before) break;
+    if (t.compareOf) continue;
     if (t.status === 'streaming' || t.status === 'failed') continue;
     if (t.answer.trim().length === 0) continue;
     out.push({ turnId: t.id, prompt: t.prompt.text, answer: t.answer });
@@ -52,9 +61,18 @@ export function historyMessages(doc: Y.Doc): { role: 'user' | 'assistant'; conte
   ]);
 }
 
-/** Short labels in order: T1, T2, T3… */
+/** Short labels in order: T1, T2, T3… (a comparison of T2 is T2b) */
 export function turnLabels(doc: Y.Doc): Map<string, string> {
   const labels = new Map<string, string>();
-  conversation(doc).forEach((t, n) => labels.set(t.id, `T${String(n + 1)}`));
+  let n = 0;
+  for (const t of conversation(doc)) {
+    const of = t.compareOf ? labels.get(t.compareOf) : undefined;
+    if (of) {
+      labels.set(t.id, `${of}b`);
+      continue;
+    }
+    n += 1;
+    labels.set(t.id, `T${String(n)}`);
+  }
   return labels;
 }
