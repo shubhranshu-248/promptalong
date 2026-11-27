@@ -110,9 +110,9 @@ describe('catalog and room choice', () => {
 
   it('labels', () => {
     expect(modelLabel(DEFAULT_MODEL)).toBe('Demo model');
-    expect(
-      modelLabel({ kind: 'byok', endpoint: 'groq', model: 'openai/gpt-oss-120b' }, true),
-    ).toBe('Groq');
+    expect(modelLabel({ kind: 'byok', endpoint: 'groq', model: 'openai/gpt-oss-120b' }, true)).toBe(
+      'Groq',
+    );
   });
 });
 
