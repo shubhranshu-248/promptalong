@@ -40,3 +40,14 @@ export {
   writeHost,
   writeLocked,
 } from './access';
+export {
+  PINS_MAX,
+  PIN_ANSWER_MAX,
+  PIN_PROMPT_MAX,
+  addPin,
+  listPins,
+  pinOf,
+  removePin,
+  type NewPin,
+  type PinView,
+} from './pins';
