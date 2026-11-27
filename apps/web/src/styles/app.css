@@ -209,3 +209,29 @@
     transition: none;
   }
 }
+
+/* print view (Export > Print): only it is printed; on screen it stays out of sight */
+#pa-print {
+  position: fixed;
+  left: -10000px;
+  top: 0;
+  width: 760px;
+}
+@media print {
+  @page {
+    margin: 18mm;
+  }
+  body > *:not(#pa-print) {
+    display: none !important;
+  }
+  #pa-print {
+    position: static;
+    width: auto;
+  }
+  .pa-print-break {
+    break-before: page;
+  }
+  .pa-print-turn {
+    break-inside: avoid-page;
+  }
+}

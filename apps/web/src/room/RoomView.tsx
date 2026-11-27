@@ -1127,7 +1127,6 @@ function RoomWorkspace({
             session={session}
             snap={snap}
             conn={conn}
-            ss={ss}
           />
         </Suspense>
       ) : null}
