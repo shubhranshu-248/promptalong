@@ -57,15 +57,15 @@ export const ENDPOINTS: readonly Endpoint[] = [
     host: 'api.groq.com',
     models: [
       {
-        id: 'llama-3.3-70b-versatile',
-        label: 'Llama 3.3 70B',
+        id: 'openai/gpt-oss-120b',
+        label: 'GPT-OSS 120B',
         contextWindow: 131_072,
         tokenizer: 'approx',
         free: true,
       },
       {
-        id: 'llama-3.1-8b-instant',
-        label: 'Llama 3.1 8B (fast)',
+        id: 'openai/gpt-oss-20b',
+        label: 'GPT-OSS 20B (fast)',
         contextWindow: 131_072,
         tokenizer: 'approx',
         free: true,

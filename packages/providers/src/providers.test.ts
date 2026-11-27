@@ -93,7 +93,7 @@ describe('catalog and room choice', () => {
       counting: 'encoding',
       encoding: 'o200k_base',
     });
-    expect(modelLimits({ kind: 'byok', endpoint: 'groq', model: 'llama-3.1-8b-instant' })).toEqual({
+    expect(modelLimits({ kind: 'byok', endpoint: 'groq', model: 'openai/gpt-oss-120b' })).toEqual({
       contextWindow: 131_072,
       counting: 'estimate',
     });
@@ -111,7 +111,7 @@ describe('catalog and room choice', () => {
   it('labels', () => {
     expect(modelLabel(DEFAULT_MODEL)).toBe('Demo model');
     expect(
-      modelLabel({ kind: 'byok', endpoint: 'groq', model: 'llama-3.1-8b-instant' }, true),
+      modelLabel({ kind: 'byok', endpoint: 'groq', model: 'openai/gpt-oss-120b' }, true),
     ).toBe('Groq');
   });
 });
