@@ -13,7 +13,7 @@ import {
   type RoomModelChoice,
 } from '@promptalong/providers';
 import { providerFor } from '../models/providers';
-import type { RoomSession } from './session';
+import type { SessionConn } from './session-conn';
 
 /** A thrown error, made safe to show to everyone in the room (no key, no header). */
 export function describeError(error: unknown): TurnError {
@@ -50,7 +50,7 @@ export interface Retry {
 }
 
 export function sendPrompt(
-  session: RoomSession,
+  session: SessionConn,
   retry?: Retry,
   tokens?: (text: string) => { tokens: number; exact: boolean } | null,
   /** the model to call instead of the room's one (the demo's scripted people use a fast demo model in tests) */

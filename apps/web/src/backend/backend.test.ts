@@ -1,7 +1,15 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { LocalBackend } from './local-backend';
 import { SupabaseBackend } from './supabase-backend';
-import { fromBase64, readActionResult, readJoinResult, readTouchResult, toBase64 } from './types';
+import {
+  fromBase64,
+  readActionResult,
+  readJoinResult,
+  readSessionResult,
+  readSessionsResult,
+  readTouchResult,
+  toBase64,
+} from './types';
 
 const ROOM = {
   id: '7b0a6c2e-0000-4000-8000-000000000001',
@@ -21,6 +29,7 @@ describe('server answers', () => {
         name: 'Hackathon pitch',
         hostUid: 'u-host',
         locked: false,
+        sessionsRev: 0,
       },
       uid: 'u-me',
       slot: 3,
@@ -215,5 +224,55 @@ describe('LocalBackend (no server)', () => {
     expect(res).toMatchObject({ ok: true, room: { id: 'K7QM2X', code: 'K7QM2X', locked: false } });
     expect(await backend.setLocked()).toEqual({ ok: false, reason: 'unavailable' });
     expect(await backend.loadSnapshot()).toBeNull();
+  });
+});
+
+describe('session answers', () => {
+  const row = {
+    id: '7b0a6c2e-0000-4000-8000-0000000000a1',
+    room_id: '7b0a6c2e-0000-4000-8000-000000000001',
+    name: 'Design',
+    is_default: false,
+    members: ['u-a', 'u-b', 7, null],
+    created_at: '2026-11-27T09:00:00Z',
+  };
+
+  it('a list with its revision; members that are not ids are dropped', () => {
+    expect(readSessionsResult({ ok: true, rev: 4, sessions: [row, { id: 1 }] })).toEqual({
+      ok: true,
+      rev: 4,
+      sessions: [
+        {
+          id: row.id,
+          roomId: row.room_id,
+          name: 'Design',
+          isDefault: false,
+          members: ['u-a', 'u-b'],
+          createdAt: row.created_at,
+        },
+      ],
+    });
+  });
+
+  it('refusals and broken answers', () => {
+    expect(readSessionsResult({ ok: false, reason: 'not_member' })).toEqual({
+      ok: false,
+      reason: 'not-member',
+    });
+    expect(readSessionResult({ ok: false, reason: 'too_many' })).toEqual({
+      ok: false,
+      reason: 'too-many',
+    });
+    expect(readSessionResult({ ok: true, session: { id: 'x' } })).toEqual({
+      ok: false,
+      reason: 'unavailable',
+    });
+    expect(readSessionsResult('nope')).toEqual({ ok: false, reason: 'unavailable' });
+  });
+
+  it('a room on this device has no server sessions', async () => {
+    const backend = new LocalBackend();
+    expect(await backend.listSessions()).toEqual({ ok: false, reason: 'unavailable' });
+    expect(await backend.createSession()).toEqual({ ok: false, reason: 'unavailable' });
   });
 });

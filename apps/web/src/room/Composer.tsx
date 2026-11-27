@@ -6,7 +6,8 @@ import { AuthorStyles } from './AuthorText';
 import { authorName, type Roster } from './authors';
 import { ArrowUpIcon, ChevronDownIcon, PaperclipIcon, StopIcon } from './icons';
 import { PromptEditor } from './PromptEditor';
-import type { PersonView, RoomSession } from './session';
+import type { PersonView } from './session';
+import type { SessionConn } from './session-conn';
 
 const compact = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 });
 const full = (n: number) => n.toLocaleString('en-US');
@@ -50,7 +51,7 @@ function ToolButton({
 }
 
 export interface ComposerProps {
-  session: RoomSession;
+  session: SessionConn;
   people: PersonView[];
   roster: Roster;
   me: string;
@@ -129,7 +130,7 @@ export function Composer(p: ComposerProps) {
               }
             }}
           >
-            <PromptEditor session={p.session} placeholder={p.placeholder} />
+            <PromptEditor key={p.session.id} session={p.session} placeholder={p.placeholder} />
           </div>
         ) : (
           // Starting the editor before the first sync would add a second empty paragraph.

@@ -3,8 +3,10 @@ import { Button, cx } from '@promptalong/ui';
 import { useId, useMemo, useState } from 'react';
 import { DialogShell } from '../room/dialogs';
 import type { RoomSession, RoomSnapshot } from '../room/session';
+import type { SessionConn, SessionSnapshot } from '../room/session-conn';
 
 type Format = 'md' | 'json';
+type Range = 'session' | 'room';
 
 const PREVIEW_CHARS = 2400;
 
@@ -14,12 +16,19 @@ export default function ExportDialog({
   onOpenChange,
   session,
   snap,
+  conn,
+  ss,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   session: RoomSession;
   snap: RoomSnapshot;
+  conn: SessionConn;
+  ss: SessionSnapshot;
 }) {
+  const [range, setRange] = useState<Range>('session');
+  const several = snap.sessions.length > 1;
+  const current = snap.sessions.find((s) => s.id === conn.id);
   const ids = { context: useId(), authors: useId() };
   const [format, setFormat] = useState<Format>('md');
   const [includeContext, setIncludeContext] = useState(true);
@@ -31,13 +40,36 @@ export default function ExportDialog({
   const text = useMemo(() => {
     if (!open) return '';
     const options = { includeContext, includeAuthors, code: session.code, exportedAt };
-    return format === 'md'
-      ? exportMarkdown(session.doc, options)
-      : exportJson(session.doc, options);
-    // (`snap.turns` changes when the room does: export what is there now)
+    const sessions =
+      range === 'room' && several
+        ? snap.sessions.flatMap((s) => {
+            const c = session.conn(s.id);
+            return c ? [{ name: s.name, doc: c.doc }] : [];
+          })
+        : [{ name: several ? (current?.name ?? 'Session') : null, doc: conn.doc }];
+    const source = { room: session.doc, sessions };
+    return format === 'md' ? exportMarkdown(source, options) : exportJson(source, options);
+    // (the turns and context change when the room does: export what is there now)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, includeContext, includeAuthors, format, exportedAt, session, snap.turns, snap.context]);
-  const fileName = exportFileName(snap.settings?.name ?? 'room', exportedAt, format);
+  }, [
+    open,
+    range,
+    includeContext,
+    includeAuthors,
+    format,
+    exportedAt,
+    session,
+    conn,
+    ss.turns,
+    ss.context,
+    snap.context,
+    snap.sessions,
+  ]);
+  const base =
+    range === 'session' && several && current
+      ? `${snap.settings?.name ?? 'room'} ${current.name}`
+      : (snap.settings?.name ?? 'room');
+  const fileName = exportFileName(base, exportedAt, format);
 
   const download = () => {
     const blob = new Blob([text], {
@@ -102,6 +134,34 @@ export default function ExportDialog({
         </>
       }
     >
+      {several ? (
+        <fieldset className="mb-4">
+          <legend className="mb-1.5 text-sm font-semibold">What to export</legend>
+          <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm">
+            {(
+              [
+                ['session', `This session (${current?.name ?? 'open now'})`],
+                ['room', `The whole room (${String(snap.sessions.length)} sessions)`],
+              ] as const
+            ).map(([id, label]) => (
+              <label key={id} className="flex items-center gap-2">
+                <input
+                  type="radio"
+                  name="export-range"
+                  value={id}
+                  checked={range === id}
+                  onChange={() => {
+                    setRange(id);
+                  }}
+                  data-testid={`export-range-${id}`}
+                  className="size-[18px] accent-[var(--c-accent)]"
+                />
+                {label}
+              </label>
+            ))}
+          </div>
+        </fieldset>
+      ) : null}
       <fieldset>
         <legend className="mb-1.5 text-sm font-semibold">Format</legend>
         <div className="grid gap-2.5 md:grid-cols-2">

@@ -21,7 +21,7 @@ const area =
 const label = 'mb-1.5 block text-sm font-semibold';
 
 export type ItemDialogMode =
-  | { type: 'add'; kind: Exclude<ContextKind, 'file'> }
+  | { type: 'add'; kind: Exclude<ContextKind, 'file'>; to?: 'room' | 'session' }
   | { type: 'edit'; item: ContextItemView }
   | { type: 'view'; item: ContextItemView };
 
@@ -118,7 +118,11 @@ function ItemForm({
               disabled={tooLarge || text.trim().length === 0}
               data-testid="item-save"
             >
-              {mode.type === 'add' ? 'Add to the room' : 'Save'}
+              {mode.type === 'add'
+                ? mode.to === 'session'
+                  ? 'Add to this session'
+                  : 'Add to the room'
+                : 'Save'}
             </Button>
           </>
         )}
@@ -230,14 +234,23 @@ export function SystemLineDialog({
   onOpenChange,
   current,
   onSave,
+  scope = 'room',
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   current: string;
   onSave: (line: string) => void;
+  /** the room's instructions (every session) or one session's */
+  scope?: 'room' | 'session';
 }) {
   const id = useId();
   const [value, setValue] = useState(current);
+  const [was, setWas] = useState(open);
+  if (was !== open) {
+    setWas(open);
+    if (open) setValue(current);
+  }
+  const title = scope === 'room' ? 'Room instructions' : 'Session instructions';
   return (
     <DialogShell
       open={open}
@@ -245,8 +258,12 @@ export function SystemLineDialog({
         if (o) setValue(current);
         onOpenChange(o);
       }}
-      title="Room line"
-      description="One instruction for the model, sent before everything else. Everyone in the room sees it and can change it. Leave it empty to send none."
+      title={title}
+      description={
+        scope === 'room'
+          ? 'Sent to the model before everything else, in every session of this room. Everyone in the room sees it and can change it. Leave it empty to send none.'
+          : 'Sent after the room instructions, in this session only. Everyone in the session sees it and can change it. Leave it empty to send none.'
+      }
     >
       <form
         onSubmit={(e) => {
@@ -256,7 +273,7 @@ export function SystemLineDialog({
         }}
       >
         <label className={label} htmlFor={id}>
-          Room line
+          {title}
         </label>
         <textarea
           id={id}
@@ -267,7 +284,7 @@ export function SystemLineDialog({
           onChange={(e) => {
             setValue(e.target.value);
           }}
-          data-testid="room-line-input"
+          data-testid={scope === 'room' ? 'room-line-input' : 'session-line-input'}
         />
         <div className="mt-5 flex justify-end gap-2.5">
           <Dialog.Close asChild>

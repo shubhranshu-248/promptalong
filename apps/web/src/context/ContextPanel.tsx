@@ -4,6 +4,7 @@ import {
   addContextItem,
   removeContextItem,
   setContextIncluded,
+  setRoomItemIncluded,
   setSystemLine,
   sha256Hex,
   updateContextItem,
@@ -18,6 +19,7 @@ import { useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } 
 import { authorName, type Roster } from '../room/authors';
 import { buildBody } from '../room/send';
 import type { RoomSession, RoomSnapshot } from '../room/session';
+import type { SessionConn, SessionSnapshot } from '../room/session-conn';
 import { ItemDialog, RemoveItemDialog, SystemLineDialog, type ItemDialogMode } from './dialogs';
 import { FILE_ACCEPT, formatBytes, readContextFile } from './files';
 import type { ContextBudget } from './useContextBudget';
@@ -129,6 +131,7 @@ function ItemCard({
   me,
   canEdit,
   canRemove,
+  removeLabel,
   onToggle,
   onOpen,
   onRemove,
@@ -139,6 +142,7 @@ function ItemCard({
   me: string;
   canEdit: boolean;
   canRemove: boolean;
+  removeLabel: string;
   onToggle: (included: boolean) => void;
   onOpen: () => void;
   onRemove: () => void;
@@ -202,7 +206,7 @@ function ItemCard({
               </Menu.Item>
               {canRemove ? (
                 <Menu.Item className={cx(menuItem, 'text-danger')} onSelect={onRemove}>
-                  Remove from the room…
+                  {removeLabel}
                 </Menu.Item>
               ) : null}
             </Menu.Content>
@@ -228,27 +232,46 @@ function ItemCard({
   );
 }
 
-/** The item list with the add zone. */
+type Scope = 'session' | 'room';
+
+/** The item list with the add zone: the room's files (every session) and this session's own. */
 export function ContextList({
   session,
   snap,
+  conn,
+  ss,
   data,
 }: {
   session: RoomSession;
   snap: RoomSnapshot;
+  conn: SessionConn;
+  ss: SessionSnapshot;
   data: ContextBudget;
 }) {
   const me = snap.me.pid;
   const iAmHost = snap.settings?.hostPid === me;
-  const [dialog, setDialog] = useState<ItemDialogMode | null>(null);
-  const [removing, setRemoving] = useState<ContextItemView | null>(null);
+  const [scope, setScope] = useState<Scope>('session');
+  const [dialog, setDialog] = useState<(ItemDialogMode & { scope: Scope }) | null>(null);
+  const [removing, setRemoving] = useState<(ContextItemView & { scope: Scope }) | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
-  const full = snap.context.length >= CONTEXT_MAX_ITEMS;
+  const docFor = (s: Scope) => (s === 'room' ? session.doc : conn.doc);
+  const itemsFor = (s: Scope) => (s === 'room' ? snap.context : ss.context);
+  const full = itemsFor(scope).length >= CONTEXT_MAX_ITEMS;
+  const roomItems = snap.context.map((i) => ({
+    ...i,
+    included: !ss.roomContextOff.includes(i.id),
+    toggledBy: null,
+  }));
 
-  const add = (kind: ContextKind, title: string, text: string): string | null => {
-    const result = addContextItem(session.doc, {
+  const add = (
+    kind: ContextKind,
+    title: string,
+    text: string,
+    to: Scope = scope,
+  ): string | null => {
+    const result = addContextItem(docFor(to), {
       id: crypto.randomUUID(),
       ownerUid: me,
       kind,
@@ -257,12 +280,13 @@ export function ContextList({
       createdAt: Date.now(),
     });
     if (result.ok) return null;
+    const where = to === 'room' ? 'The room' : 'A session';
     return result.reason === 'too-large'
       ? 'That is larger than 1 MB. Trim it, or add the part that matters.'
       : result.reason === 'room-full'
-        ? `A room holds up to ${String(CONTEXT_MAX_ITEMS)} context items. Remove one first.`
+        ? `${where} holds up to ${String(CONTEXT_MAX_ITEMS)} context items. Remove one first.`
         : result.reason === 'room-size'
-          ? 'The room already holds 6 MB of context. Remove an item first.'
+          ? `${where} already holds 6 MB of context. Remove an item first.`
           : 'There is no text to add.';
   };
 
@@ -282,9 +306,44 @@ export function ContextList({
     void addFiles([...e.dataTransfer.files]);
   };
 
+  const card = (item: ContextItemView, s: Scope) => (
+    <ItemCard
+      key={item.id}
+      item={item}
+      tokens={data.itemTokens[item.id] ?? 0}
+      roster={snap.roster}
+      me={me}
+      canEdit={item.ownerUid === me}
+      canRemove={item.ownerUid === me || iAmHost}
+      removeLabel={s === 'room' ? 'Remove from the room…' : 'Remove from this session…'}
+      onToggle={(included) => {
+        if (s === 'room') setRoomItemIncluded(conn.doc, item.id, included);
+        else setContextIncluded(conn.doc, item.id, included, me);
+      }}
+      onOpen={() => {
+        setDialog({ type: item.ownerUid === me ? 'edit' : 'view', item, scope: s });
+      }}
+      onRemove={() => {
+        setRemoving({ ...item, scope: s });
+      }}
+    />
+  );
+
+  const group = (title: string, hint: string, testId: string, cards: ReactNode[]) =>
+    cards.length > 0 ? (
+      <section aria-label={title} className="flex flex-col gap-2" data-testid={testId}>
+        <h3 className="text-xs font-semibold text-text-muted">
+          {title} <span className="font-normal">· {hint}</span>
+        </h3>
+        <ul className="flex flex-col gap-3">{cards}</ul>
+      </section>
+    ) : null;
+
+  const empty = roomItems.length === 0 && ss.context.length === 0;
+
   return (
     <div
-      className="flex flex-col gap-3"
+      className="flex flex-col gap-4"
       onDragOver={(e) => {
         if (![...e.dataTransfer.types].includes('Files')) return;
         e.preventDefault();
@@ -295,34 +354,26 @@ export function ContextList({
       }}
       onDrop={onDrop}
     >
-      {snap.context.length > 0 ? (
-        <ul className="flex flex-col gap-3" data-testid="context-items">
-          {snap.context.map((item) => (
-            <ItemCard
-              key={item.id}
-              item={item}
-              tokens={data.itemTokens[item.id] ?? 0}
-              roster={snap.roster}
-              me={me}
-              canEdit={item.ownerUid === me}
-              canRemove={item.ownerUid === me || iAmHost}
-              onToggle={(included) => {
-                setContextIncluded(session.doc, item.id, included, me);
-              }}
-              onOpen={() => {
-                setDialog({ type: item.ownerUid === me ? 'edit' : 'view', item });
-              }}
-              onRemove={() => {
-                setRemoving(item);
-              }}
-            />
-          ))}
-        </ul>
-      ) : (
+      {empty ? (
         <p className="text-sm text-text-muted" data-testid="context-empty">
-          Nothing is attached yet. Whatever you add here is sent to the model before the prompt, and
-          everyone in the room can see it and switch it off.
+          Nothing is attached yet. Whatever you add is sent to the model before the prompt. Add it
+          to this session, or to the whole room so every session gets it.
         </p>
+      ) : (
+        <div className="flex flex-col gap-4" data-testid="context-items">
+          {group(
+            'Whole room',
+            'every session gets these; switch one off for this session only',
+            'context-room',
+            roomItems.map((i) => card(i, 'room')),
+          )}
+          {group(
+            'This session',
+            'only this session sends these',
+            'context-session',
+            ss.context.map((i) => card(i, 'session')),
+          )}
+        </div>
       )}
       <div
         className={cx(
@@ -331,17 +382,43 @@ export function ContextList({
         )}
         data-testid="context-add"
       >
-        <p className="text-sm font-semibold">Add context for the whole room</p>
+        <div
+          role="radiogroup"
+          aria-label="Add context to"
+          className="mx-auto mb-3 inline-flex rounded-pill bg-surface-2 p-0.5 text-xs font-medium"
+        >
+          {(['session', 'room'] as const).map((s) => (
+            <button
+              key={s}
+              type="button"
+              role="radio"
+              aria-checked={scope === s}
+              data-testid={`context-scope-${s}`}
+              onClick={() => {
+                setScope(s);
+              }}
+              className={cx(
+                'rounded-pill px-3 py-1.5',
+                scope === s ? 'bg-surface text-text shadow-sm' : 'text-text-muted hover:text-text',
+              )}
+            >
+              {s === 'session' ? 'This session' : 'Whole room'}
+            </button>
+          ))}
+        </div>
+        <p className="text-sm font-semibold">
+          {scope === 'room' ? 'Add context for every session' : 'Add context for this session'}
+        </p>
         <p className="mt-0.5 text-xs text-text-muted">Or drop a .txt or .md file here</p>
         <p className="mt-1 text-xs text-text-muted">
-          Text only, up to 1 MB each. {snap.context.length} of {CONTEXT_MAX_ITEMS} used.
+          Text only, up to 1 MB each. {itemsFor(scope).length} of {CONTEXT_MAX_ITEMS} used.
         </p>
         <div className="mt-2.5 flex flex-wrap justify-center gap-2">
           <Button
             size="sm"
             disabled={full}
             onClick={() => {
-              setDialog({ type: 'add', kind: 'note' });
+              setDialog({ type: 'add', kind: 'note', to: scope, scope });
             }}
           >
             Add note
@@ -350,7 +427,7 @@ export function ContextList({
             size="sm"
             disabled={full}
             onClick={() => {
-              setDialog({ type: 'add', kind: 'snippet' });
+              setDialog({ type: 'add', kind: 'snippet', to: scope, scope });
             }}
           >
             Paste snippet
@@ -388,17 +465,17 @@ export function ContextList({
       </div>
       <ItemDialog
         mode={dialog}
-        doc={session.doc}
+        doc={docFor(dialog?.scope ?? scope)}
         onClose={() => {
           setDialog(null);
         }}
-        onAdd={add}
+        onAdd={(kind, title, text) => add(kind, title, text, dialog?.scope ?? scope)}
         onSave={(id, title, text) => {
-          const result = updateContextItem(session.doc, id, { title, text });
+          const result = updateContextItem(docFor(dialog?.scope ?? scope), id, { title, text });
           return result === 'ok'
             ? null
             : result === 'too-large'
-              ? 'That is larger than 1 MB, or the room would pass 6 MB of context.'
+              ? 'That is larger than 1 MB, or it would pass 6 MB of context.'
               : result === 'empty'
                 ? 'There is no text to save.'
                 : 'This item was removed by someone else.';
@@ -410,7 +487,7 @@ export function ContextList({
           setRemoving(null);
         }}
         onRemove={(id) => {
-          removeContextItem(session.doc, id);
+          removeContextItem(docFor(removing?.scope ?? 'session'), id);
         }}
       />
     </div>
@@ -449,20 +526,55 @@ function SegmentBlock({
 }
 
 /** The request as Send will post it: readable segments, or the exact string. */
+function LineRow({
+  label,
+  line,
+  empty,
+  testId,
+  onEdit,
+}: {
+  label: string;
+  line: string;
+  empty: string;
+  testId: string;
+  onEdit: () => void;
+}) {
+  return (
+    <div className="flex items-center gap-2 text-xs">
+      <span className="min-w-0 flex-1 truncate text-text-muted" data-testid={testId}>
+        {line ? (
+          <>
+            {label}: <span className="text-text">{line}</span>
+          </>
+        ) : (
+          empty
+        )}
+      </span>
+      <Button size="sm" onClick={onEdit}>
+        {line ? 'Edit' : 'Add'} <span className="sr-only">{label.toLowerCase()}</span>
+      </Button>
+    </div>
+  );
+}
+
 export function PayloadView({
   session,
   snap,
+  conn,
+  ss,
   data,
 }: {
   session: RoomSession;
   snap: RoomSnapshot;
+  conn: SessionConn;
+  ss: SessionSnapshot;
   data: ContextBudget;
 }) {
   const [json, setJson] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [lineOpen, setLineOpen] = useState(false);
+  const [lineOpen, setLineOpen] = useState<'room' | 'session' | null>(null);
   const { assembled } = data;
-  const body = useMemo(() => buildBody(snap.model, assembled.messages), [snap.model, assembled]);
+  const body = useMemo(() => buildBody(ss.model, assembled.messages), [ss.model, assembled]);
   const [hashed, setHashed] = useState<{ body: string; hash: string } | null>(null);
   useEffect(() => {
     let live = true;
@@ -476,9 +588,9 @@ export function PayloadView({
   // while the prompt is being typed the view is a moment behind: no hash until it has caught up
   const hash = !data.stale && hashed?.body === body ? hashed.hash : '';
 
-  const last = [...snap.path].reverse().find((t) => t.requestHash);
-  const lastLabel = last ? (snap.labels[last.id] ?? '') : '';
-  const nextLabel = `T${String(snap.path.length + 1)}`;
+  const last = [...ss.path].reverse().find((t) => t.requestHash);
+  const lastLabel = last ? (ss.labels[last.id] ?? '') : '';
+  const nextLabel = `T${String(ss.path.length + 1)}`;
   const history = assembled.segments.filter((s) => s.kind === 'history');
   const historyTurns = [...new Set(history.map((s) => s.turnId ?? ''))];
   const historyTokens = history.reduce(
@@ -560,25 +672,24 @@ export function PayloadView({
         Byte-for-byte what Send will post. No hidden system prompt is added. Model keys are never
         part of the payload.
       </p>
-      <div className="flex items-center gap-2 text-xs">
-        <span className="min-w-0 flex-1 truncate text-text-muted" data-testid="room-line">
-          {snap.systemLine ? (
-            <>
-              Room line: <span className="text-text">{snap.systemLine}</span>
-            </>
-          ) : (
-            'No room line. Add one to tell the model what this room is for.'
-          )}
-        </span>
-        <Button
-          size="sm"
-          onClick={() => {
-            setLineOpen(true);
-          }}
-        >
-          {snap.systemLine ? 'Edit room line' : 'Add room line'}
-        </Button>
-      </div>
+      <LineRow
+        label="Room instructions"
+        line={snap.systemLine}
+        empty="No room instructions. Add them to tell the model what this room is for."
+        testId="room-line"
+        onEdit={() => {
+          setLineOpen('room');
+        }}
+      />
+      <LineRow
+        label="Session instructions"
+        line={ss.systemLine}
+        empty="No session instructions."
+        testId="session-line"
+        onEdit={() => {
+          setLineOpen('session');
+        }}
+      />
       {json ? (
         <pre
           className="max-h-[52vh] min-h-24 overflow-auto rounded-md border border-border bg-code-bg p-3 font-mono text-xs leading-relaxed break-all whitespace-pre-wrap"
@@ -600,7 +711,7 @@ export function PayloadView({
           {historyTurns.length > 0 ? (
             <details className="border-l-[3px] border-text pl-2.5" data-testid="seg-history">
               <summary className="cursor-pointer">
-                history ({historyTurns.map((id) => snap.labels[id] ?? '?').join(', ')} + answers) …{' '}
+                history ({historyTurns.map((id) => ss.labels[id] ?? '?').join(', ')} + answers) …{' '}
                 {n(historyTokens)} tokens
               </summary>
               {history.map((s, i) => (
@@ -644,11 +755,24 @@ export function PayloadView({
         context {assembled.items.length === 1 ? 'item' : 'items'}
       </p>
       <SystemLineDialog
-        open={lineOpen}
-        onOpenChange={setLineOpen}
+        open={lineOpen === 'room'}
+        onOpenChange={(o) => {
+          setLineOpen(o ? 'room' : null);
+        }}
         current={snap.systemLine}
         onSave={(line) => {
           setSystemLine(session.doc, line, snap.me.pid);
+        }}
+      />
+      <SystemLineDialog
+        scope="session"
+        open={lineOpen === 'session'}
+        onOpenChange={(o) => {
+          setLineOpen(o ? 'session' : null);
+        }}
+        current={ss.systemLine}
+        onSave={(line) => {
+          setSystemLine(conn.doc, line, snap.me.pid);
         }}
       />
     </div>
@@ -659,6 +783,8 @@ export function PayloadView({
 export function ContextPanel({
   session,
   snap,
+  conn,
+  ss,
   data,
   tab,
   onTab,
@@ -666,13 +792,18 @@ export function ContextPanel({
 }: {
   session: RoomSession;
   snap: RoomSnapshot;
+  conn: SessionConn;
+  ss: SessionSnapshot;
   data: ContextBudget;
   tab: PanelTab;
   onTab: (tab: PanelTab) => void;
   onClose: () => void;
 }) {
   const tabs: PanelTab[] = ['context', 'payload'];
-  const included = snap.context.filter((i) => i.included).length;
+  const total = snap.context.length + ss.context.length;
+  const included =
+    snap.context.filter((i) => !ss.roomContextOff.includes(i.id)).length +
+    ss.context.filter((i) => i.included).length;
   return (
     <>
       <div className="flex h-14 flex-none items-center gap-2 border-b border-border px-3">
@@ -723,23 +854,23 @@ export function ContextPanel({
         {tab === 'context' ? (
           <>
             <p className="text-sm text-text-muted">
-              Everyone can attach notes, snippets and text files. They go to the model before the
-              prompt; anyone can switch one off.
+              Attach notes, snippets and text files for the whole room or for this session. They go
+              to the model before the prompt; anyone here can switch one off.
             </p>
             <BudgetBar
               budget={data.budget}
               exact={data.exact}
               roster={snap.roster}
               me={snap.me.pid}
-              model={modelLabel(snap.model)}
+              model={modelLabel(ss.model)}
             />
             <p className="text-xs font-medium text-text-muted" data-testid="context-count">
-              {included} of {snap.context.length} included
+              {included} of {total} included
             </p>
-            <ContextList session={session} snap={snap} data={data} />
+            <ContextList session={session} snap={snap} conn={conn} ss={ss} data={data} />
           </>
         ) : (
-          <PayloadView session={session} snap={snap} data={data} />
+          <PayloadView session={session} snap={snap} conn={conn} ss={ss} data={data} />
         )}
       </div>
     </>

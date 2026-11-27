@@ -29,6 +29,7 @@ function recallSeat(code: string): { room: RoomInfo; uid: string; slot: number }
         name: typeof v.room.name === 'string' ? v.room.name : '',
         hostUid: typeof v.room.hostUid === 'string' ? v.room.hostUid : '',
         locked: v.room.locked === true,
+        sessionsRev: typeof v.room.sessionsRev === 'number' ? v.room.sessionsRev : 0,
       },
       uid: v.uid,
       slot: typeof v.slot === 'number' ? v.slot : 0,

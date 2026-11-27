@@ -11,7 +11,9 @@ import { useState } from 'react';
 import type * as Y from 'yjs';
 import { buildBody, sendPrompt } from '../room/send';
 import { RoomSession } from '../room/session';
-import { useRoomSnapshot } from '../room/useRoomSession';
+import { useRoomSnapshot, useSessionSnapshot } from '../room/useRoomSession';
+import type { SessionConn } from '../room/session-conn';
+import { general, sessionHubFor, sessionOpen } from '../test/sessions';
 import { ContextPanel, type PanelTab } from './ContextPanel';
 import { useContextBudget } from './useContextBudget';
 
@@ -26,6 +28,8 @@ function open(hub: MemoryHub, pid: string, name: string, at: number, create = fa
     pid,
     name,
     transport: hub.createTransport(),
+    sessionTransport: () => sessionHubFor(hub).createTransport(),
+    prepare: create,
     now: () => at,
     ...(create ? { create: { name: 'Hackathon pitch', sendPolicy: 'everyone' as const } } : {}),
   });
@@ -36,12 +40,29 @@ function open(hub: MemoryHub, pid: string, name: string, at: number, create = fa
 
 function Harness({ session, start = 'context' }: { session: RoomSession; start?: PanelTab }) {
   const snap = useRoomSnapshot(session);
-  const data = useContextBudget(session, snap);
+  const conn = snap.activeId ? session.conn(snap.activeId) : null;
+  return conn ? <Panel session={session} conn={conn} start={start} /> : null;
+}
+
+function Panel({
+  session,
+  conn,
+  start,
+}: {
+  session: RoomSession;
+  conn: SessionConn;
+  start: PanelTab;
+}) {
+  const snap = useRoomSnapshot(session);
+  const ss = useSessionSnapshot(session, conn);
+  const data = useContextBudget(session, snap, conn, ss);
   const [tab, setTab] = useState<PanelTab>(start);
   return (
     <ContextPanel
       session={session}
       snap={snap}
+      conn={conn}
+      ss={ss}
       data={data}
       tab={tab}
       onTab={setTab}
@@ -65,6 +86,7 @@ describe('context panel', () => {
     await waitFor(() => {
       expect(b.getSnapshot().people).toHaveLength(2);
     });
+    await Promise.all([sessionOpen(a), sessionOpen(b)]);
     render(<Harness session={a} />);
 
     expect(screen.getByTestId('context-empty')).toBeInTheDocument();
@@ -74,21 +96,24 @@ describe('context panel', () => {
     fireEvent.change(within(dialog).getByLabelText('Note'), {
       target: { value: '- live map of found items\n- photo + pin' },
     });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Add to the room' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add to this session' }));
 
     const item = await screen.findByTestId('context-item');
     expect(item).toHaveTextContent('App features');
     expect(item).toHaveTextContent('You · note · 39 B');
     expect(screen.getByTestId('context-count')).toHaveTextContent('1 of 1 included');
     await waitFor(() => {
-      expect(b.getSnapshot().context).toHaveLength(1);
+      expect(general(b).getSnapshot().context).toHaveLength(1);
     });
+    // a session's own item: not in the room's list
+    expect(b.getSnapshot().context).toHaveLength(0);
+    expect(screen.getByTestId('context-session')).toHaveTextContent('App features');
 
     // Meera excludes it in her browser: Aarav's panel says who did it
-    const id = b.getSnapshot().context[0]?.id ?? '';
+    const id = general(b).getSnapshot().context[0]?.id ?? '';
     act(() => {
-      b.doc.getMap<Y.Map<unknown>>('context').get(id)?.set('included', false);
-      b.doc.getMap<Y.Map<unknown>>('context').get(id)?.set('toggledBy', 'bbbb2222');
+      general(b).doc.getMap<Y.Map<unknown>>('context').get(id)?.set('included', false);
+      general(b).doc.getMap<Y.Map<unknown>>('context').get(id)?.set('toggledBy', 'bbbb2222');
     });
     await waitFor(() => {
       expect(screen.getByTestId('context-item')).toHaveTextContent('excluded by Meera');
@@ -99,7 +124,7 @@ describe('context panel', () => {
     // and Aarav switches it back on
     fireEvent.click(screen.getByRole('checkbox', { name: 'Include App features' }));
     await waitFor(() => {
-      expect(b.getSnapshot().context[0]?.included).toBe(true);
+      expect(general(b).getSnapshot().context[0]?.included).toBe(true);
     });
   });
 
@@ -116,11 +141,15 @@ describe('context panel', () => {
         createdAt: 5,
       });
     });
-    type(a.doc, '/short Make it 2 minutes');
+    const sa = await sessionOpen(a);
+    type(sa.doc, '/short Make it 2 minutes');
     render(<Harness session={a} start="payload" />);
 
-    fireEvent.click(screen.getByTestId('payload-json-button'));
-    const expected = buildBody(a.getSnapshot().model, assembleRoom(a.doc).messages);
+    fireEvent.click(await screen.findByTestId('payload-json-button'));
+    const expected = buildBody(
+      sa.getSnapshot().model,
+      assembleRoom(sa.doc, { room: a.doc }).messages,
+    );
     await waitFor(() => {
       expect(screen.getByTestId('payload-json')).toHaveTextContent(expected, {
         normalizeWhitespace: false,
@@ -135,13 +164,13 @@ describe('context panel', () => {
 
     let sent: Awaited<ReturnType<typeof sendPrompt>> | undefined;
     await act(async () => {
-      sent = await sendPrompt(a);
+      sent = await sendPrompt(sa);
     });
     expect(sent?.ok).toBe(true);
     await waitFor(() => {
-      expect(a.getSnapshot().turns[0]?.status).toBe('done');
+      expect(sa.getSnapshot().turns[0]?.status).toBe('done');
     });
-    const turn = a.getSnapshot().turns[0];
+    const turn = sa.getSnapshot().turns[0];
     expect(turn?.requestHash).toBe(hash);
     expect(turn?.context.map((c) => c.title)).toEqual(['Survey numbers']);
     await waitFor(() => {
@@ -162,7 +191,8 @@ describe('context panel', () => {
         createdAt: 5,
       });
     });
-    type(a.doc, 'Three slide titles');
+    const s3 = await sessionOpen(a);
+    type(s3.doc, 'Three slide titles');
     render(<Harness session={a} start="payload" />);
     await waitFor(() => {
       expect(screen.getByTestId('seg-prompt')).toHaveTextContent('user (T1): Three slide titles');
@@ -170,15 +200,29 @@ describe('context panel', () => {
     expect(screen.getByTestId('seg-context')).toHaveTextContent('[context: App features · Aarav]');
     expect(screen.queryByTestId('seg-system')).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Add room line' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add room instructions' }));
     fireEvent.change(screen.getByTestId('room-line-input'), { target: { value: 'Be brief.' } });
     fireEvent.click(screen.getByTestId('room-line-save'));
     await waitFor(() => {
       expect(screen.getByTestId('seg-system')).toHaveTextContent('system: Be brief.');
     });
-    expect(assembleRoom(a.doc).messages[0]?.content).toBe(
-      'Be brief.\n\n[context: App features · Aarav]\n- live map',
+    // the session's own instructions come after the room's
+    fireEvent.click(screen.getByRole('button', { name: 'Add session instructions' }));
+    fireEvent.change(screen.getByTestId('session-line-input'), {
+      target: { value: 'Answer as slides.' },
+    });
+    const saves = screen.getAllByTestId('room-line-save');
+    fireEvent.click(saves[saves.length - 1] ?? saves[0] ?? document.body);
+    await waitFor(() => {
+      expect(screen.getByTestId('seg-system')).toHaveTextContent(
+        'system: Be brief. Answer as slides.',
+      );
+    });
+    expect(assembleRoom(s3.doc, { room: a.doc }).messages[0]?.content).toBe(
+      'Be brief.\n\nAnswer as slides.\n\n[context: App features · Aarav]\n- live map',
     );
+    // the room's document keeps only the room's line
+    expect(assembleRoom(a.doc).messages[0]?.content).toContain('Be brief.');
   });
 
   it('over budget: says how much to remove and marks counts "about" for a model without a tokenizer', async () => {
@@ -195,6 +239,7 @@ describe('context panel', () => {
         createdAt: 5,
       });
     });
+    await sessionOpen(a);
     render(<Harness session={a} />);
     const budget = await screen.findByTestId('budget');
     await waitFor(() => {

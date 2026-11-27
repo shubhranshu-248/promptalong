@@ -8,7 +8,8 @@ import { memo, useMemo } from 'react';
 import { promptFragment } from '@promptalong/core';
 import { presenceHex } from '@promptalong/ui';
 import { AuthorMark } from './author-mark';
-import { readUser, type RoomSession } from './session';
+import { readUser } from './people';
+import type { SessionConn } from './session-conn';
 import { YjsCollaboration, isRemoteChange } from './yjs-collaboration';
 
 /** A remote person's caret: a line in their colour with their name (colour is never the only cue). */
@@ -50,7 +51,7 @@ export const PromptEditor = memo(function PromptEditor({
   session,
   placeholder = 'Write the prompt together…',
 }: {
-  session: RoomSession;
+  session: SessionConn;
   placeholder?: string;
 }) {
   const options = useMemo(() => {

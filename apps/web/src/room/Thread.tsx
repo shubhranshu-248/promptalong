@@ -43,7 +43,7 @@ function Dot({ slot, roster, pid }: { slot?: number; roster: Roster; pid: string
     <span
       aria-hidden="true"
       className="inline-block size-2.5 flex-none rounded-full ring-2 ring-bg"
-      style={{ background: `var(--p-${String(Math.min(8, Math.max(1, n)))})` }}
+      style={{ background: `var(--p-${String(Math.min(16, Math.max(1, n)))})` }}
     />
   );
 }

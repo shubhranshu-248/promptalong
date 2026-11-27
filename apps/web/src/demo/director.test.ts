@@ -7,6 +7,7 @@ import {
   readSettings,
 } from '@promptalong/core';
 import { MockProvider } from '@promptalong/providers';
+import { sessionOpen } from '../test/sessions';
 import { DemoDirector } from './director';
 import { BOTS, CONTEXT, DEMO_ROOM_NAME } from './script';
 
@@ -25,14 +26,15 @@ const fast = { speed: 0.01, provider: new MockProvider({ chunkMs: 1 }) };
 describe('DemoDirector', () => {
   it('plays the story into the visitor room and hands over turn 3', async () => {
     director = new DemoDirector({ visitorName: 'You', ...fast });
-    const doc = director.visitor.doc;
+    const room = director.visitor.doc;
+    const doc = (await sessionOpen(director.visitor)).doc;
     await director.play();
     expect(director.getPhase()).toBe('your-turn');
     await vi.waitFor(() => {
       expect(promptText(doc)).toBe(T3);
     });
 
-    expect(readSettings(doc)).toMatchObject({ name: DEMO_ROOM_NAME, hostPid: BOTS.meera.pid });
+    expect(readSettings(room)).toMatchObject({ name: DEMO_ROOM_NAME, hostPid: BOTS.meera.pid });
     const turns = conversation(doc);
     expect(turns.map((t) => t.prompt.text)).toEqual([
       'Write a 90-second hackathon pitch for FoundIt, our campus lost-and-found map. Follow the judging criteria.',
@@ -79,16 +81,18 @@ describe('DemoDirector', () => {
 
   it('Stop ends the script at once and closes every session', async () => {
     director = new DemoDirector({ visitorName: 'You', ...fast });
+    const conn = await sessionOpen(director.visitor);
     const playing = director.play();
     director.stop();
     await playing;
     expect(director.getPhase()).toBe('stopped');
-    expect(promptText(director.visitor.doc)).toBe('');
+    expect(promptText(conn.doc)).toBe('');
+    expect(director.visitor.conn(conn.id)).toBeNull();
   });
 
   it('the visitor can send in the middle of the story; the script waits and carries on', async () => {
     director = new DemoDirector({ visitorName: 'You', ...fast });
-    const visitor = director.visitor;
+    const visitor = await sessionOpen(director.visitor);
     const playing = director.play();
     await vi.waitFor(() => {
       expect(promptText(visitor.doc)).toContain('hackathon pitch');

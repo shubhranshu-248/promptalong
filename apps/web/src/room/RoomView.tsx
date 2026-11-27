@@ -31,10 +31,11 @@ import { CheckIcon, LinkIcon, MoreIcon, SidebarIcon } from './icons';
 import { saveDisplayName } from './identity';
 import { sendPrompt, type Retry } from './send';
 import type { PersonView, RoomSession, RoomSnapshot } from './session';
+import type { SessionConn, SessionSnapshot } from './session-conn';
 import { Avatar, Sidebar } from './Sidebar';
 import { STARTERS } from './starters';
 import { Thread } from './Thread';
-import { useRoomSnapshot } from './useRoomSession';
+import { useRoomSnapshot, useSessionSnapshot } from './useRoomSession';
 
 /** Export is rarely opened: its code is loaded when it is. */
 const ExportDialog = lazy(() => import('../export/ExportDialog'));
@@ -43,7 +44,7 @@ const menuItem =
   'flex cursor-default items-center gap-2.5 rounded-md px-3 py-2.5 text-sm font-medium outline-none data-[highlighted]:bg-surface-2';
 
 /** Adds text to the end of the shared prompt, marked as written by `uid`. */
-function addToPrompt(session: RoomSession, text: string, uid: string): void {
+function addToPrompt(session: SessionConn, text: string, uid: string): void {
   const paragraph = promptFragment(session.doc).get(0);
   if (!(paragraph instanceof Y.XmlElement)) return;
   const node = paragraph.get(0);
@@ -165,15 +166,17 @@ function RoomMenu({
   );
 }
 
-function statusLine(s: RoomSnapshot, demo: boolean): string {
-  if (s.state === 'offline') return 'Offline. Your edits are saved on this device.';
-  if (s.state === 'connecting') return 'Connecting…';
-  if (!s.savedLocally) return 'Loading…';
+function statusLine(s: RoomSnapshot, ss: SessionSnapshot, demo: boolean): string {
+  if (s.state === 'offline' || ss.state === 'offline') {
+    return 'Offline. Your edits are saved on this device.';
+  }
+  if (s.state === 'connecting' || ss.state === 'connecting') return 'Connecting…';
+  if (!s.savedLocally || !ss.savedLocally) return 'Loading…';
   if (demo) return 'Demo room: nothing here is saved.';
-  const others = s.people.length - 1;
+  const others = ss.people.length - 1;
   return others > 0
-    ? `${String(s.people.length)} people here. Everything syncs as you type.`
-    : 'Saved. Everything syncs as soon as someone joins.';
+    ? `${String(ss.people.length)} people in this session. Everything syncs as you type.`
+    : 'Saved. Everything syncs as soon as someone opens this session.';
 }
 
 function Notice({
@@ -376,6 +379,47 @@ export function RoomView({
   demo?: DemoRoom;
 }) {
   const snap = useRoomSnapshot(session);
+  if (snap.ended) {
+    return <RoomBlocked reason={snap.ended} code={session.code} name={snap.settings?.name} />;
+  }
+  if (snap.full) return <RoomFull name={snap.settings?.name ?? null} />;
+  const conn = snap.activeId ? session.conn(snap.activeId) : null;
+  if (!conn) {
+    return (
+      <div className="grid h-dvh place-items-center bg-bg px-6 text-center">
+        <p className="text-sm text-text-muted" role="status" data-testid="sessions-loading">
+          {snap.sessionsLoaded
+            ? 'You are not in any session of this room yet. The host can add you to one.'
+            : 'Opening the room…'}
+        </p>
+      </div>
+    );
+  }
+  return (
+    <RoomWorkspace
+      session={session}
+      snap={snap}
+      conn={conn}
+      openShare={openShare}
+      {...(demo ? { demo } : {})}
+    />
+  );
+}
+
+function RoomWorkspace({
+  session,
+  snap,
+  conn,
+  openShare,
+  demo,
+}: {
+  session: RoomSession;
+  snap: RoomSnapshot;
+  conn: SessionConn;
+  openShare: boolean;
+  demo?: DemoRoom;
+}) {
+  const ss = useSessionSnapshot(session, conn);
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const [shareOpen, setShareOpen] = useState(openShare);
@@ -414,7 +458,7 @@ export function RoomView({
   const [pendingRetry, setPendingRetry] = useState<Retry | undefined>(undefined);
   const [notice, setNotice] = useState<string | null>(null);
   const keys = useKeyStore();
-  const context = useContextBudget(session, snap);
+  const context = useContextBudget(session, snap, conn, ss);
   const tokensFor = useRef(context.tokensFor);
   useEffect(() => {
     tokensFor.current = context.tokensFor;
@@ -469,24 +513,23 @@ export function RoomView({
   };
   const hostOnly = snap.settings?.sendPolicy === 'host';
   const online = snap.state === 'synced' || snap.state === 'alone';
-  const lockedByOther = snap.lock !== null && snap.lock.session !== session.sync.id;
-  const sendingMine = snap.lock !== null && snap.lock.session === session.sync.id;
-  const model = snap.model;
+  const lockedByOther = ss.lock !== null && ss.lock.session !== conn.sync.id;
+  const sendingMine = ss.lock !== null && ss.lock.session === conn.sync.id;
+  const model = ss.model;
   const needsKey = model.kind === 'byok' && !keys.has(model.endpoint ?? '');
   const blocked: string | null = !online
     ? 'Send works again when you are back online.'
     : hostOnly && !iAmHost
       ? `Only ${host?.name ?? 'the host'} (host) can press Send in this room.`
       : lockedByOther
-        ? `Send is free again when ${snap.lock?.name ?? 'their'}'s answer ends.`
+        ? `Send is free again when ${ss.lock?.name ?? 'their'}'s answer ends.`
         : context.budget.over > 0
           ? `Too long for this model: remove about ${context.budget.over.toLocaleString('en-US')} tokens (see Context).`
           : null;
 
   const send = useCallback(
     (retryText?: Retry) => {
-      const s = session.getSnapshot();
-      const choice = s.model;
+      const choice = conn.getSnapshot().model;
       if (choice.kind === 'byok' && !keys.has(choice.endpoint ?? '')) {
         setPendingRetry(retryText);
         setAddKeyOpen(true);
@@ -498,26 +541,26 @@ export function RoomView({
         return;
       }
       setNotice(null);
-      void sendPrompt(session, retryText, (text) => tokensFor.current(text)).then((r) => {
+      void sendPrompt(conn, retryText, (text) => tokensFor.current(text)).then((r) => {
         if (r.ok) return;
         if (r.reason === 'lost' || r.reason === 'busy') {
           setNotice(`${r.holder?.name ?? 'Someone else'} pressed Send first.`);
         }
       });
     },
-    [session, keys, openModel],
+    [conn, keys, openModel],
   );
-
-  if (snap.ended) {
-    return <RoomBlocked reason={snap.ended} code={session.code} name={snap.settings?.name} />;
-  }
-  if (snap.full) return <RoomFull name={snap.settings?.name ?? null} />;
 
   const title = snap.settings?.name ?? formatRoomCode(session.code);
   const others = snap.people.length - 1;
   const localOnly = realtimeConfig.mode === 'none';
-  const streaming = snap.path.find((t) => t.status === 'streaming') ?? null;
-  const ready = snap.savedLocally && snap.state !== 'connecting';
+  const streaming = ss.path.find((t) => t.status === 'streaming') ?? null;
+  const ready =
+    snap.savedLocally &&
+    ss.savedLocally &&
+    ss.promptReady &&
+    snap.state !== 'connecting' &&
+    ss.state !== 'connecting';
   const docked = wideScreen; // sidebar is part of the layout from 1100 px
   const overlayOpen = (!docked && sidebarOpen) || (ctxOpen && !xl);
 
@@ -687,7 +730,7 @@ export function RoomView({
             data-scroll
           >
             <div className="flex-1 px-6 pt-6 pb-8 max-md:px-4">
-              {snap.path.length === 0 ? (
+              {ss.path.length === 0 ? (
                 <EmptyRoom
                   hostOnly={hostOnly}
                   hostName={host?.name ?? null}
@@ -696,12 +739,12 @@ export function RoomView({
                   code={demo ? null : session.code}
                   starters={!demo}
                   onStarter={(text) => {
-                    addToPrompt(session, text, me.pid);
+                    addToPrompt(conn, text, me.pid);
                   }}
                 />
               ) : (
                 <Thread
-                  turns={snap.path}
+                  turns={ss.path}
                   people={snap.people}
                   ctx={{ roster: snap.roster, showAuthors }}
                   actions={{
@@ -725,14 +768,17 @@ export function RoomView({
               }}
             >
               <Composer
-                session={session}
-                people={snap.people}
+                session={conn}
+                people={ss.people}
                 roster={snap.roster}
                 me={me.pid}
                 ready={ready}
                 showAuthors={showAuthors}
                 model={model}
-                contextCount={snap.context.filter((i) => i.included).length}
+                contextCount={
+                  snap.context.filter((i) => i.included && !ss.roomContextOff.includes(i.id))
+                    .length + ss.context.filter((i) => i.included).length
+                }
                 budget={context.budget}
                 exact={context.exact}
                 blocked={blocked}
@@ -743,15 +789,15 @@ export function RoomView({
                 }
                 notice={notice}
                 sendingMine={sendingMine}
-                sendingOther={lockedByOther ? (snap.lock?.name ?? 'Someone') : null}
+                sendingOther={lockedByOther ? (ss.lock?.name ?? 'Someone') : null}
                 streamingTurn={
                   streaming
                     ? { id: streaming.id, stopping: streaming.stopRequestedBy !== undefined }
                     : null
                 }
-                status={statusLine(snap, demo !== undefined)}
+                status={statusLine(snap, ss, demo !== undefined)}
                 placeholder={
-                  snap.path.length === 0
+                  ss.path.length === 0
                     ? 'Write the prompt together…'
                     : 'Write the next prompt together…'
                 }
@@ -769,7 +815,7 @@ export function RoomView({
                   send();
                 }}
                 onStop={(id) => {
-                  session.stream.requestStop(id);
+                  conn.stream.requestStop(id);
                 }}
                 onContext={() => {
                   setCtxTab('context');
@@ -794,6 +840,8 @@ export function RoomView({
             <ContextPanel
               session={session}
               snap={snap}
+              conn={conn}
+              ss={ss}
               data={context}
               tab={ctxTab}
               onTab={setCtxTab}
@@ -818,7 +866,7 @@ export function RoomView({
         myName={me.name}
         {...(modelFocus ? { focus: modelFocus } : {})}
         onUse={(choice: RoomModelChoice) => {
-          setRoomModel(session.doc, { ...choice, setBy: me.pid });
+          setRoomModel(conn.doc, { ...choice, setBy: me.pid });
           setNotice(null);
         }}
       />
@@ -828,10 +876,10 @@ export function RoomView({
         choice={model}
         myName={me.name}
         onSaved={() => {
-          void sendPrompt(session, pendingRetry, (text) => tokensFor.current(text));
+          void sendPrompt(conn, pendingRetry, (text) => tokensFor.current(text));
         }}
         onUseDemo={() => {
-          setRoomModel(session.doc, { ...DEFAULT_MODEL, setBy: me.pid });
+          setRoomModel(conn.doc, { ...DEFAULT_MODEL, setBy: me.pid });
         }}
       />
       {exportUsed ? (
@@ -841,6 +889,8 @@ export function RoomView({
             onOpenChange={setExportOpen}
             session={session}
             snap={snap}
+            conn={conn}
+            ss={ss}
           />
         </Suspense>
       ) : null}
