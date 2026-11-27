@@ -81,4 +81,50 @@ test.describe('room interface', () => {
       await closeAll([aarav]);
     }
   });
+
+  test('Edit puts an old prompt back with its authors; Compare shows two answers side by side', async ({
+    browser,
+  }) => {
+    const aarav = await person(browser, 'Aarav');
+    const meera = await person(browser, 'Meera');
+    try {
+      const code = await createRoom(aarav);
+      await joinRoom(meera, code);
+      await editor(aarav).click();
+      await aarav.page.keyboard.type('/short Three slide');
+      await expect.poll(() => promptText(meera)).toBe('/short Three slide');
+      await editor(meera).click();
+      await meera.page.keyboard.press('End');
+      await meera.page.keyboard.type(' titles');
+      await expect.poll(() => promptText(aarav)).toBe('/short Three slide titles');
+      await aarav.page.getByTestId('send-button').click();
+      await expect(aarav.page.getByTestId('turn-answer')).toHaveCount(1);
+      await expect(aarav.page.getByTestId('send-button')).toBeVisible();
+
+      // Edit: the prompt comes back for everyone, each part still marked with who wrote it
+      await meera.page.getByTestId('edit-prompt').click();
+      for (const p of [aarav, meera]) {
+        await expect.poll(() => promptText(p)).toBe('/short Three slide titles');
+      }
+      await expect(editor(aarav).locator('.pa-author').first()).toBeVisible();
+      await editor(meera).click();
+      await meera.page.keyboard.press('End');
+      await meera.page.keyboard.type(' for judges');
+      await meera.page.getByTestId('send-button').click();
+      await expect(aarav.page.getByTestId('turn-answer')).toHaveCount(2);
+
+      // Compare: the same prompt to a second model; both answers under one prompt
+      await aarav.page.getByTestId('compare-answer').last().click();
+      const dialog = aarav.page.getByRole('dialog', { name: 'Compare with another model' });
+      await dialog.getByRole('button', { name: 'Send to this model' }).click();
+      for (const p of [aarav, meera]) {
+        const pair = p.page.getByTestId('compare');
+        await expect(pair).toHaveCount(1);
+        await expect(pair.getByTestId('turn-answer')).toHaveCount(2);
+        await expect(p.page.getByTestId('turn-prompt')).toHaveCount(2); // one prompt per pair
+      }
+    } finally {
+      await closeAll([aarav, meera]);
+    }
+  });
 });
