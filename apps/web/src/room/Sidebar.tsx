@@ -1,7 +1,7 @@
 import * as Menu from '@radix-ui/react-dropdown-menu';
 import { formatRoomCode } from '@promptalong/core';
 import { LogoMark, cx, initials } from '@promptalong/ui';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Link } from 'react-router';
 import { CheckIcon, CloseIcon, LinkIcon, LockIcon, MoreIcon, PlusIcon, SidebarIcon } from './icons';
 import type { PersonView } from './session';
@@ -37,15 +37,18 @@ const menuItem =
 function PeopleList({
   people,
   manage,
+  sessionName,
 }: {
   people: PersonView[];
+  /** the name of the session someone has open (only shown when the room has several) */
+  sessionName?: ((id: string) => string | null) | undefined;
   /** host powers (only given to the host of a room that has a server) */
   manage?: { makeHost: (p: PersonView) => void; remove: (p: PersonView) => void } | undefined;
 }) {
   return (
     <section aria-labelledby="people-h">
       <h2 id="people-h" className="px-2 font-body text-xs font-medium text-text-muted">
-        People here, {people.length} of 8
+        People here, {people.length} of 16
       </h2>
       <ul className="mt-1.5 flex flex-col gap-0.5" data-testid="people-list">
         {people.map((p) => (
@@ -71,7 +74,12 @@ function PeopleList({
                   <span className="ml-1.5 text-[11px] font-semibold text-accent">host</span>
                 ) : null}
               </p>
-              <p className="text-xs text-text-muted">{ACTIVITY[p.activity]}</p>
+              <p className="truncate text-xs text-text-muted">
+                {ACTIVITY[p.activity]}
+                {p.viewing && sessionName?.(p.viewing)
+                  ? ` · in ${sessionName(p.viewing) ?? ''}`
+                  : ''}
+              </p>
             </div>
             {manage && !p.me ? (
               <Menu.Root>
@@ -150,6 +158,8 @@ export function Sidebar({
   manage,
   myName,
   onRename,
+  sessions,
+  sessionName,
 }: {
   open: boolean;
   onClose: () => void;
@@ -165,6 +175,9 @@ export function Sidebar({
   manage?: { makeHost: (p: PersonView) => void; remove: (p: PersonView) => void } | undefined;
   myName: string;
   onRename: () => void;
+  /** the session list (rooms with several sessions, or a host who can add one) */
+  sessions?: ReactNode;
+  sessionName?: (id: string) => string | null;
 }) {
   const [copied, copy] = useCopied();
   const link = `${window.location.origin}/r/${code}`;
@@ -266,7 +279,8 @@ export function Sidebar({
             ) : null}
           </section>
         )}
-        <PeopleList people={people} manage={manage} />
+        {sessions}
+        <PeopleList people={people} manage={manage} sessionName={sessionName} />
       </div>
 
       <div className="flex-none border-t border-border px-3 py-2.5">

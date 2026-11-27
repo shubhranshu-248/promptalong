@@ -287,7 +287,7 @@ function OpenModelDialog({ open, onOpenChange, current, myName, onUse, focus }: 
       open={open}
       onOpenChange={onOpenChange}
       wide
-      title="Model for this room"
+      title="Model for this session"
       description="Everyone sees the same answer. Only the person who presses Send needs access to the model."
       footer={
         <>
@@ -301,7 +301,7 @@ function OpenModelDialog({ open, onOpenChange, current, myName, onUse, focus }: 
             }}
             disabled={kind === 'webllm' && !webGpu}
           >
-            Use for this room
+            Use for this session
           </Button>
         </>
       }

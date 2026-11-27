@@ -1,9 +1,14 @@
 import * as Menu from '@radix-ui/react-dropdown-menu';
 import {
+  addPin,
+  pinOf,
+  removePin,
   cleanDisplayName,
   formatRoomCode,
   promptFragment,
+  removedPeople,
   setRoomModel,
+  type PinView,
   type TurnView,
 } from '@promptalong/core';
 import {
@@ -32,6 +37,10 @@ import { saveDisplayName } from './identity';
 import { sendPrompt, type Retry } from './send';
 import type { PersonView, RoomSession, RoomSnapshot } from './session';
 import type { SessionConn, SessionSnapshot } from './session-conn';
+import { PinDialog, PinnedList } from './Pins';
+import { sessionProblem } from './session-problem';
+import { SessionDialog, SessionList, type Candidate } from './Sessions';
+import type { SessionView } from './session';
 import { Avatar, Sidebar } from './Sidebar';
 import { STARTERS } from './starters';
 import { Thread } from './Thread';
@@ -430,6 +439,21 @@ function RoomWorkspace({
     { kind: 'remove'; person: PersonView } | { kind: 'delete' } | null
   >(null);
   const [accessNotice, setAccessNotice] = useState<string | null>(null);
+  const [sessionDialog, setSessionDialog] = useState<{ editing: SessionView | null } | null>(null);
+  const [deleting, setDeleting] = useState<SessionView | null>(null);
+  const [openPin, setOpenPin] = useState<PinView | null>(null);
+  // what is new in the other sessions shows in the browser tab, so a background tab says so
+  const unreadElsewhere = snap.sessions
+    .filter((s) => s.id !== conn.id)
+    .reduce((n, s) => n + s.unread, 0);
+  const tabName = snap.settings?.name ?? formatRoomCode(session.code);
+  useEffect(() => {
+    const before = document.title;
+    document.title = `${unreadElsewhere > 0 ? `(${String(unreadElsewhere)}) ` : ''}${tabName} · PromptAlong`;
+    return () => {
+      document.title = before;
+    };
+  }, [unreadElsewhere, tabName]);
   useEffect(() => {
     if (!accessNotice) return;
     const timer = setTimeout(() => {
@@ -552,6 +576,22 @@ function RoomWorkspace({
   );
 
   const title = snap.settings?.name ?? formatRoomCode(session.code);
+  const current = snap.sessions.find((s) => s.id === conn.id) ?? null;
+  const several = snap.sessions.length > 1;
+  const removed = new Set(removedPeople(session.doc));
+  const here = new Set(snap.people.map((p) => p.pid));
+  const candidates: Candidate[] = Object.entries(snap.roster)
+    .filter(([pid]) => !removed.has(pid))
+    .map(([pid, r]) => ({
+      pid,
+      name: r.name,
+      slot: r.slot,
+      here: here.has(pid),
+      me: pid === me.pid,
+    }))
+    .sort((a, b) => Number(b.me) - Number(a.me) || a.name.localeCompare(b.name));
+  const sessionName = (id: string) =>
+    several ? (snap.sessions.find((s) => s.id === id)?.name ?? null) : null;
   const others = snap.people.length - 1;
   const localOnly = realtimeConfig.mode === 'none';
   const streaming = ss.path.find((t) => t.status === 'streaming') ?? null;
@@ -602,6 +642,35 @@ function RoomWorkspace({
         onRename={() => {
           setRenameOpen(true);
         }}
+        sessionName={sessionName}
+        sessions={
+          <>
+            {several || canManage ? (
+              <SessionList
+                sessions={snap.sessions}
+                activeId={conn.id}
+                roster={snap.roster}
+                me={me.pid}
+                isHost={iAmHost}
+                canManage={canManage}
+                onOpen={(id) => {
+                  session.setActive(id);
+                  if (!matchesMedia('(min-width: 1100px)')) setSidebarOpen(false);
+                }}
+                onNew={() => {
+                  setSessionDialog({ editing: null });
+                }}
+                onEdit={(s) => {
+                  setSessionDialog({ editing: s });
+                }}
+                onDelete={(s) => {
+                  setDeleting(s);
+                }}
+              />
+            ) : null}
+            <PinnedList pins={snap.pins} onOpen={setOpenPin} />
+          </>
+        }
       />
       {overlayOpen ? (
         <button
@@ -638,6 +707,12 @@ function RoomWorkspace({
               data-testid="room-title"
             >
               {title}
+              {several && current ? (
+                <span className="font-normal text-text-muted" data-testid="session-title">
+                  {' / '}
+                  {current.name}
+                </span>
+              ) : null}
             </h1>
             {snap.locked && !canManage ? (
               <span
@@ -757,6 +832,30 @@ function RoomWorkspace({
                     onUpdateKey: (turn: TurnView) => {
                       openModel(turn.provider.kind === 'byok' ? 'byok' : undefined);
                     },
+                    isPinned: (turn: TurnView) => pinOf(session.doc, conn.id, turn.id) !== null,
+                    onPin: (turn: TurnView) => {
+                      const existing = pinOf(session.doc, conn.id, turn.id);
+                      if (existing) {
+                        removePin(session.doc, existing.id);
+                        return;
+                      }
+                      const res = addPin(session.doc, {
+                        sessionId: conn.id,
+                        sessionName: current?.name ?? 'General',
+                        turnId: turn.id,
+                        label: ss.labels[turn.id] ?? '',
+                        prompt: turn.prompt.text,
+                        answer: turn.answer,
+                        by: me.pid,
+                        byName: me.name,
+                        at: Date.now(),
+                      });
+                      setAccessNotice(
+                        res === 'full'
+                          ? 'A room keeps up to 50 pins. Unpin one first.'
+                          : 'Pinned for the room: everyone in it can read this answer.',
+                      );
+                    },
                   }}
                 />
               )}
@@ -867,6 +966,8 @@ function RoomWorkspace({
         {...(modelFocus ? { focus: modelFocus } : {})}
         onUse={(choice: RoomModelChoice) => {
           setRoomModel(conn.doc, { ...choice, setBy: me.pid });
+          // sessions that never picked their own (and new ones) start with the latest choice
+          setRoomModel(session.doc, { ...choice, setBy: me.pid });
           setNotice(null);
         }}
       />
@@ -943,6 +1044,81 @@ function RoomWorkspace({
           {confirm?.kind === 'remove'
             ? `${confirm.person.name} leaves the room now and cannot join it again from that browser. What they wrote stays, with their name on it.`
             : "The room, its saved copy and everyone's seat are deleted from the server now. People who have it open are sent out. Copies already saved on their devices are not touched. Export first if you want to keep the conversation."}
+        </p>
+      </DialogShell>
+      <PinDialog
+        pin={openPin}
+        onClose={() => {
+          setOpenPin(null);
+        }}
+        canOpenSession={openPin !== null && snap.sessions.some((s) => s.id === openPin.sessionId)}
+        canUnpin={openPin !== null && (openPin.by === me.pid || iAmHost)}
+        onOpenSession={() => {
+          if (openPin) session.setActive(openPin.sessionId);
+          setOpenPin(null);
+        }}
+        onUnpin={() => {
+          if (openPin) removePin(session.doc, openPin.id);
+          setOpenPin(null);
+        }}
+      />
+      <SessionDialog
+        open={sessionDialog !== null}
+        onOpenChange={(o) => {
+          if (!o) setSessionDialog(null);
+        }}
+        editing={sessionDialog?.editing ?? null}
+        candidates={candidates}
+        onSave={async (name, members) => {
+          const editing = sessionDialog?.editing;
+          const res = editing
+            ? await session.updateSession(editing.id, {
+                ...(name !== editing.name ? { name } : {}),
+                members,
+              })
+            : await session.createSession(name, members);
+          if (!res.ok) return sessionProblem(res.reason);
+          setAccessNotice(editing ? `${name} was saved.` : `${name} is ready.`);
+          return null;
+        }}
+      />
+      <DialogShell
+        open={deleting !== null}
+        onOpenChange={(o) => {
+          if (!o) setDeleting(null);
+        }}
+        title={`Delete ${deleting?.name ?? 'this session'}?`}
+        footer={
+          <>
+            <Button
+              onClick={() => {
+                setDeleting(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              data-testid="confirm-delete-session"
+              onClick={() => {
+                const what = deleting;
+                setDeleting(null);
+                if (!what) return;
+                void session.deleteSession(what.id).then((res) => {
+                  setAccessNotice(
+                    res.ok ? `${what.name} was deleted.` : sessionProblem(res.reason),
+                  );
+                });
+              }}
+            >
+              Delete session
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm">
+          Its prompt, answers and files are deleted from the server for everyone in it. Export it
+          first if you want to keep it. The room and its other sessions stay.
         </p>
       </DialogShell>
       <RenameDialog

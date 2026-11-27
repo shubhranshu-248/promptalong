@@ -4,7 +4,7 @@ import { cx } from '@promptalong/ui';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { AttributedText } from './AuthorText';
 import { authorsOf, type Roster } from './authors';
-import { CheckIcon, CopyIcon, RetryIcon } from './icons';
+import { CheckIcon, CopyIcon, PinIcon, RetryIcon } from './icons';
 import { Markdown } from './Markdown';
 import type { PersonView } from './session';
 
@@ -12,6 +12,9 @@ export interface ThreadActions {
   onRetry: (turn: TurnView) => void;
   onChangeModel: () => void;
   onUpdateKey: (turn: TurnView) => void;
+  /** keep this answer for the whole room (or take the pin away) */
+  onPin?: (turn: TurnView) => void;
+  isPinned?: (turn: TurnView) => boolean;
 }
 
 export interface ThreadContext {
@@ -293,6 +296,19 @@ function Answer({
             >
               <RetryIcon />
             </ActionButton>
+            {actions.onPin && turn.answer ? (
+              <ActionButton
+                label={actions.isPinned?.(turn) ? 'Unpin from the room' : 'Pin to the room'}
+                testId="pin-answer"
+                onClick={() => {
+                  actions.onPin?.(turn);
+                }}
+              >
+                <span className={actions.isPinned?.(turn) ? 'text-accent' : undefined}>
+                  <PinIcon />
+                </span>
+              </ActionButton>
+            ) : null}
           </span>
         )}
         <p

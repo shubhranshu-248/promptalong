@@ -6,6 +6,7 @@ import {
   isMarkedRemoved,
   isOverCapacity,
   listContext,
+  listPins,
   lockedBy,
   markDeleted,
   markRemoved,
@@ -21,6 +22,7 @@ import {
   writeHost,
   writeLocked,
   type ContextItemView,
+  type PinView,
   type PresentPerson,
   type RoomSettings,
   type SendPolicy,
@@ -98,6 +100,8 @@ export interface RoomSnapshot {
   sessionsLoaded: boolean;
   /** the session on screen (null = none: this person is in no session) */
   activeId: string | null;
+  /** answers kept for the whole room, newest first */
+  pins: PinView[];
 }
 
 export interface RosterEntry {
@@ -226,6 +230,7 @@ export class RoomSession {
       sessions: [],
       sessionsLoaded: false,
       activeId: null,
+      pins: [],
     };
   }
 
@@ -284,6 +289,7 @@ export class RoomSession {
     this.doc.getMap('context').observeDeep(this.onSettings);
     this.doc.getMap('access').observe(this.onAccess);
     this.doc.getMap('sessions').observe(this.onSessionsSignal);
+    this.doc.getMap('pins').observeDeep(this.onSettings);
     this.sync.onState(this.onSyncState);
     this.sync.connect();
     this.startServerSide(create !== undefined);
@@ -320,6 +326,7 @@ export class RoomSession {
     this.doc.getMap('context').unobserveDeep(this.onSettings);
     this.doc.getMap('access').unobserve(this.onAccess);
     this.doc.getMap('sessions').unobserve(this.onSessionsSignal);
+    this.doc.getMap('pins').unobserveDeep(this.onSettings);
     this.doc.off('update', this.onDocUpdate);
     if (this.heartbeat) clearInterval(this.heartbeat);
     if (this.beatLater) clearTimeout(this.beatLater);
@@ -851,6 +858,7 @@ export class RoomSession {
       model: readModelChoice(readRoomModel(this.doc)),
       locked: this.managed ? readLocked(this.doc) || this.initiallyLocked() : false,
       lockedBy: lockedBy(this.doc),
+      pins: listPins(this.doc),
     });
     if (full && !wasFull) this.leaveBecauseFull();
   }
