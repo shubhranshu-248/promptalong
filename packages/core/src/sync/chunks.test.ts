@@ -7,6 +7,7 @@ import {
   Reassembler,
   RoomSync,
   parseWireMessage,
+  bytesToBase64,
   splitMessage,
   type Transport,
   type WireMessage,
@@ -78,10 +79,12 @@ describe('ChunkedTransport', () => {
   it('a 1 MB change reaches the other person through parts no larger than one broadcast', async () => {
     const hub = new MemoryHub();
     const largest = { value: 0 };
+    const sentParts = { value: 0 };
     const wrap = (t: Transport): Transport => {
       const send = t.send.bind(t);
       t.send = (m) => {
         largest.value = Math.max(largest.value, m.d.length);
+        if (m.d.length > 1000) sentParts.value += 1;
         send(m);
       };
       return new ChunkedTransport(t, { rate: 1000 });
@@ -104,6 +107,26 @@ describe('ChunkedTransport', () => {
     await waitFor(() => b.getText('t').length === 1024 * 1024);
     expect(b.getText('t').toJSON()).toBe(a.getText('t').toJSON());
     expect(largest.value).toBeLessThanOrEqual(CHUNK_CHARS);
+    // 1 MB of ordinary text is compressed first: far fewer parts than ~9 uncompressed ones
+    expect(sentParts.value).toBeLessThan(4);
     for (const s of syncs) s.destroy();
+  });
+
+  it('incompressible data still arrives (sent in parts without compression)', async () => {
+    const hub = new MemoryHub();
+    const a = new ChunkedTransport(hub.createTransport(), { rate: 1000 });
+    const b = new ChunkedTransport(hub.createTransport(), { rate: 1000 });
+    const got: WireMessage[] = [];
+    b.onMessage((m) => got.push(m));
+    a.connect();
+    b.connect();
+    const noise = new Uint8Array(300_000);
+    for (let i = 0; i < noise.length; i += 65_536)
+      crypto.getRandomValues(noise.subarray(i, i + 65_536));
+    const d = bytesToBase64(noise);
+    a.send({ t: 'update', from: 'a', d });
+    await waitFor(() => got.length === 1);
+    expect(got[0]?.d).toBe(d);
+    expect(got[0]?.z).toBeUndefined();
   });
 });

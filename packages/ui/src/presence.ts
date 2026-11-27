@@ -1,8 +1,8 @@
 import tokens from './tokens/tokens.json';
 
 export const PRESENCE_SLOTS = tokens.color.presence.slots.map((s) => s.id);
-export type PresenceSlot = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
-export const MAX_PARTICIPANTS = 8;
+export type PresenceSlot = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16;
+export const MAX_PARTICIPANTS = 16;
 
 /** CSS variables for a presence slot: the colour and the label colour drawn on it. */
 export function presenceVars(slot: PresenceSlot): { color: string; label: string } {
@@ -11,7 +11,7 @@ export function presenceVars(slot: PresenceSlot): { color: string; label: string
 
 /** Hex values of a presence slot, for places that cannot use CSS variables (editor carets). */
 export function presenceHex(slot: number): { color: string; label: string } {
-  const s = tokens.color.presence.slots[Math.min(Math.max(slot, 1), 8) - 1];
+  const s = tokens.color.presence.slots[Math.min(Math.max(slot, 1), 16) - 1];
   return { color: s?.value ?? '#16171D', label: s?.label ?? '#FFFFFF' };
 }
 

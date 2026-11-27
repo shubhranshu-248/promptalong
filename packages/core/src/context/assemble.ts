@@ -2,7 +2,12 @@ import type * as Y from 'yjs';
 import { historyEntries } from '../history/history';
 import { fragmentWithSpans, trimWithSpans, type Span } from '../provenance/spans';
 import { promptFragment, peopleMap } from '../room/doc';
-import { listContextWithText, readSystemLine, type ContextKind } from './context';
+import {
+  listContextWithText,
+  readSystemLine,
+  type ContextItemView,
+  type ContextKind,
+} from './context';
 
 /**
  * The one place a request is put together (ADR-005, "Honest context"). The context panel and Send
@@ -157,12 +162,59 @@ export function contextOwnerName(doc: Y.Doc, uid: string): string {
   return 'someone';
 }
 
-/** Assembles the request from the room document (prompt = the shared draft unless given). */
-export function assembleRoom(doc: Y.Doc, options: { prompt?: string } = {}): Assembled {
+/** The session's switch for one of the room's context items (room items are on by default). */
+export const ROOM_CONTEXT_OFF = 'roomContextOff';
+
+export function isRoomItemIncluded(session: Y.Doc, itemId: string): boolean {
+  return session.getMap<boolean>(ROOM_CONTEXT_OFF).get(itemId) !== true;
+}
+
+export function setRoomItemIncluded(session: Y.Doc, itemId: string, included: boolean): void {
+  const off = session.getMap<boolean>(ROOM_CONTEXT_OFF);
+  if (included) off.delete(itemId);
+  else off.set(itemId, true);
+}
+
+/**
+ * Assembles the request (prompt = the shared draft unless given). With `room`, the document is a
+ * session of that room: the room's instructions and context items come first (each switched on or
+ * off for this session alone), then the session's own instructions and items. Names come from the
+ * room's people list, so every device builds the same bytes.
+ */
+export type ScopedContextItem = ContextItemView & { text: string; scope: 'room' | 'session' };
+
+/**
+ * The context items a session sends, in order: the room's items (each on unless this session
+ * switched it off), then the session's own. Send and the context panel both read this list.
+ */
+export function sessionContextItems(doc: Y.Doc, room: Y.Doc | null = null): ScopedContextItem[] {
+  const own = listContextWithText(doc).map((i) => ({ ...i, scope: 'session' as const }));
+  if (!room) return own;
+  return [
+    ...listContextWithText(room).map((i) => ({
+      ...i,
+      included: isRoomItemIncluded(doc, i.id),
+      scope: 'room' as const,
+    })),
+    ...own,
+  ];
+}
+
+export function assembleRoom(
+  doc: Y.Doc,
+  options: { prompt?: string; room?: Y.Doc | null } = {},
+): Assembled {
+  const room = options.room ?? null;
+  const people = room ?? doc;
+  const lines = room ? [readSystemLine(room), readSystemLine(doc)] : [readSystemLine(doc)];
+  const items = sessionContextItems(doc, room);
   return assemble({
-    systemLine: readSystemLine(doc),
-    items: listContextWithText(doc),
-    ownerName: (uid) => contextOwnerName(doc, uid),
+    systemLine: lines
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .join(CONTEXT_SEPARATOR),
+    items,
+    ownerName: (uid) => contextOwnerName(people, uid),
     history: historyEntries(doc),
     prompt: options.prompt ?? draftPrompt(doc).text,
   });

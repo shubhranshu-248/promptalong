@@ -25,6 +25,8 @@ import {
   roomBytes,
   setContextIncluded,
   setSystemLine,
+  setRoomItemIncluded,
+  isRoomItemIncluded,
   sha256Hex,
   tipOf,
   tokenBudget,
@@ -434,5 +436,41 @@ describe('token budget', () => {
     });
     expect(view.limit).toBe(3072);
     expect(view.over).toBe(3500 + 200 + 11 - 3072);
+  });
+});
+
+describe('a session of a room', () => {
+  it('room instructions and files come first, then the session own; each session switches room files', () => {
+    const roomDoc = room();
+    setSystemLine(roomDoc, 'You are helping a team prepare a hackathon pitch.', 'aarav');
+    const criteria = add(roomDoc, 'judging-criteria.txt', 'Problem 30%, demo 25%', 'meera', 'file');
+    const a = new Y.Doc();
+    const b = new Y.Doc();
+    setSystemLine(a, 'This session writes the 2-minute script.', 'aarav');
+    add(a, 'Script notes', 'Open with Ishita', 'aarav');
+
+    const inA = assembleRoom(a, { room: roomDoc, prompt: 'Draft it' });
+    expect(inA.messages).toEqual([
+      {
+        role: 'system',
+        content:
+          'You are helping a team prepare a hackathon pitch.\n\nThis session writes the 2-minute script.\n\n' +
+          '[context: judging-criteria.txt · Meera]\nProblem 30%, demo 25%\n\n' +
+          '[context: Script notes · Aarav]\nOpen with Ishita',
+      },
+      { role: 'user', content: 'Draft it' },
+    ]);
+
+    // session B switches the room file off; session A still sends it
+    const id = criteria.ok ? criteria.item.id : '';
+    setRoomItemIncluded(b, id, false);
+    expect(isRoomItemIncluded(b, id)).toBe(false);
+    expect(assembleRoom(b, { room: roomDoc, prompt: 'x' }).items).toEqual([]);
+    expect(assembleRoom(a, { room: roomDoc, prompt: 'x' }).items.map((i) => i.title)).toEqual([
+      'judging-criteria.txt',
+      'Script notes',
+    ]);
+    setRoomItemIncluded(b, id, true);
+    expect(assembleRoom(b, { room: roomDoc, prompt: 'x' }).items).toHaveLength(1);
   });
 });

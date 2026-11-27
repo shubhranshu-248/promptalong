@@ -70,6 +70,28 @@ export function initRoom(doc: Y.Doc, settings: RoomSettings): boolean {
   return true;
 }
 
+/**
+ * Prepares a session document: its shared prompt gets its one empty paragraph (written once, by
+ * whoever creates the session - see initRoom for why) and the time it was made. False when it was
+ * prepared before.
+ */
+export function initSession(doc: Y.Doc, createdAt: number): boolean {
+  const meta = doc.getMap<unknown>('meta');
+  if (meta.has('createdAt') || promptFragment(doc).length > 0) return false;
+  doc.transact(() => {
+    meta.set('createdAt', createdAt);
+    const paragraph = new Y.XmlElement('paragraph');
+    paragraph.insert(0, [new Y.XmlText()]);
+    promptFragment(doc).insert(0, [paragraph]);
+  });
+  return true;
+}
+
+/** True once the session document has its prompt (made by its creator, or loaded). */
+export function isSessionReady(doc: Y.Doc): boolean {
+  return promptFragment(doc).length > 0;
+}
+
 /** The room settings, or null while they have not arrived yet. */
 export function readSettings(doc: Y.Doc): RoomSettings | null {
   const map = settingsMap(doc);

@@ -61,6 +61,8 @@ export type SendResult =
   | { ok: false; reason: 'busy' | 'lost' | 'empty' | 'not-allowed'; holder?: LockHolder };
 
 export interface CoordinatorOptions {
+  /** the room document when this document is one of its sessions (room context comes first) */
+  room?: () => Y.Doc | null;
   pid: string;
   session: string;
   name: () => string;
@@ -119,6 +121,7 @@ export class StreamCoordinator {
       flushMs: 150,
       checkMs: 1000,
       newId: () => crypto.randomUUID(),
+      room: () => null,
       ...options,
     };
     lockMap(doc).observe(this.onLock);
@@ -174,7 +177,7 @@ export class StreamCoordinator {
     const fromDraft = req.clearPrompt ? draftPrompt(this.doc) : null;
     const sent = fromDraft?.text ? fromDraft : { text: req.promptText, spans: req.spans ?? [] };
     // The same function the context panel shows: room line, included context, history, prompt.
-    const assembled = assembleRoom(this.doc, { prompt: sent.text });
+    const assembled = assembleRoom(this.doc, { prompt: sent.text, room: this.o.room() });
     const body = req.buildBody(assembled.messages);
     const context: TurnContextRecord[] = assembled.items.map((item) => {
       const counted = req.tokens?.(item.block) ?? null;

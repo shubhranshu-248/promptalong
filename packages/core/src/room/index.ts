@@ -8,6 +8,8 @@ export {
   readRoomModel,
   setRoomModel,
   initRoom,
+  initSession,
+  isSessionReady,
   peopleMap,
   promptFragment,
   promptText,
@@ -23,6 +25,7 @@ export {
   chooseSlot,
   hasPriority,
   isOverCapacity,
+  MAX_SESSION_PEOPLE,
   type PresentPerson,
 } from './slots';
 export {

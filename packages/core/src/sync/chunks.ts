@@ -1,3 +1,4 @@
+import { base64ToBytes, bytesToBase64, canCompress, gunzip, gzip } from './compress';
 import type { Transport, TransportStatus, WireMessage } from './transport';
 
 /**
@@ -15,6 +16,26 @@ export const CHUNK_MAX_PARTS = 128;
 export const CHUNK_RATE = 8;
 /** an unfinished message is dropped after this long */
 export const CHUNK_TIMEOUT_MS = 60_000;
+/** payloads at least this long are gzip-compressed before they are sent */
+export const COMPRESS_AT = 24_000;
+
+/** The message with its payload compressed, when that makes it smaller. */
+export async function compressMessage(message: WireMessage): Promise<WireMessage> {
+  if (message.z === 1 || message.d.length < COMPRESS_AT || !canCompress()) return message;
+  const zipped = bytesToBase64(await gzip(base64ToBytes(message.d)));
+  return zipped.length < message.d.length ? { ...message, d: zipped, z: 1 } : message;
+}
+
+/** The message with its original payload. */
+export async function decompressMessage(message: WireMessage): Promise<WireMessage> {
+  if (message.z !== 1) return message;
+  const plain: WireMessage = {
+    ...message,
+    d: bytesToBase64(await gunzip(base64ToBytes(message.d))),
+  };
+  delete plain.z;
+  return plain;
+}
 
 export interface ChunkInfo {
   /** message id, the same in every part */
@@ -112,10 +133,14 @@ export class ChunkedTransport implements Transport {
   }
 
   connect(): void {
+    this.closed = false;
     this.inner.connect();
   }
 
+  private closed = false;
+
   disconnect(): void {
+    this.closed = true;
     this.queue.length = 0;
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
@@ -123,6 +148,24 @@ export class ChunkedTransport implements Transport {
   }
 
   send(message: WireMessage): void {
+    if (message.d.length >= COMPRESS_AT && canCompress()) {
+      // big payloads are compressed first (asynchronous: a small message may overtake it, which
+      // the room's sync accepts - changes merge in any order)
+      void compressMessage(message).then(
+        (m) => {
+          this.sendNow(m);
+        },
+        () => {
+          this.sendNow(message);
+        },
+      );
+      return;
+    }
+    this.sendNow(message);
+  }
+
+  private sendNow(message: WireMessage): void {
+    if (this.closed) return;
     const parts = splitMessage(message, this.options.max ?? CHUNK_CHARS);
     if (parts.length === 1 && !parts[0]?.c) {
       this.inner.send(message);
@@ -151,7 +194,12 @@ export class ChunkedTransport implements Transport {
   onMessage(listener: (message: WireMessage) => void): () => void {
     return this.inner.onMessage((m) => {
       const whole = this.reassembler.push(m);
-      if (whole) listener(whole);
+      if (!whole) return;
+      if (whole.z !== 1) {
+        listener(whole);
+        return;
+      }
+      void decompressMessage(whole).then(listener, () => undefined);
     });
   }
 

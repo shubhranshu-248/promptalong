@@ -1,10 +1,15 @@
 /**
- * Colour slots (1-8) are handed out in join order. Every browser decides only its OWN slot from what
+ * Colour slots (1-16) are handed out in join order. Every browser decides only its OWN slot from what
  * it sees, with one tie-break rule everyone shares, so two people who join at the same moment never
  * keep the same colour.
  */
-export const SLOT_COUNT = 8;
-export const MAX_PEOPLE = 8;
+export const SLOT_COUNT = 16;
+export const MAX_PEOPLE = 16;
+/**
+ * people listed in one session; at most MAX_PEOPLE are in the room at once, the list also keeps
+ * people who left and may come back
+ */
+export const MAX_SESSION_PEOPLE = 64;
 
 export interface PresentPerson {
   pid: string;
@@ -37,11 +42,11 @@ export function chooseSlot(me: PresentPerson, others: readonly PresentPerson[]):
     peers.filter((o) => valid(o.slot) && hasPriority(o, me)).map((o) => o.slot),
   );
   for (let s = 1; s <= SLOT_COUNT; s++) if (!taken.has(s)) return s;
-  // More than 8 people: share the last colour; the full-room rule removes the extra person.
+  // More than 16 people: share the last colour; the full-room rule removes the extra person.
   return SLOT_COUNT;
 }
 
-/** True when this person is beyond the 8-person limit (ranked by join order). */
+/** True when this person is beyond the 16-person limit (ranked by join order). */
 export function isOverCapacity(me: PresentPerson, others: readonly PresentPerson[]): boolean {
   const ahead = new Set(
     others.filter((o) => o.pid !== me.pid && hasPriority(o, me)).map((o) => o.pid),

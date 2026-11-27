@@ -129,7 +129,7 @@ describe('export', () => {
         '> Write a 2 minute pitch',
         '> for the judges',
         '',
-        'Room line: You are helping a team prepare a pitch.',
+        'Instructions: You are helping a team prepare a pitch.',
         'Context: judging-criteria.txt (Meera)',
         'Model: GPT-4o mini · 1,284 tokens in, 212 out',
         '',
@@ -141,7 +141,7 @@ describe('export', () => {
         '',
         '> Now shorter',
         '',
-        'Room line: You are helping a team prepare a pitch.',
+        'Instructions: You are helping a team prepare a pitch.',
         'Context: judging-criteria.txt (Meera)',
         'Model: GPT-4o mini · 1,284 tokens in, 212 out',
         'Status: stopped',
@@ -251,9 +251,78 @@ describe('export', () => {
       exportedAt: AT,
     });
     expect(md).toContain('0 turns');
-    expect(md).toContain('Nothing has been sent in this room yet.');
+    expect(md).toContain('Nothing has been sent here yet.');
     expect(exportFileName('Hackathon pitch!', AT, 'md')).toBe('hackathon-pitch-2026-11-25.md');
     expect(exportFileName('  ', AT, 'json')).toBe('room-2026-11-25.json');
+  });
+});
+
+describe('export of a room with sessions', () => {
+  function session(line: string): Y.Doc {
+    const doc = new Y.Doc();
+    setSystemLine(doc, line, 'aarav');
+    return doc;
+  }
+
+  it('the room once, then each session with its own turns and context', () => {
+    const roomDoc = room();
+    const design = session('Focus on the slides.');
+    const code = session('');
+    turn(design, 't1', 'Outline the slides', 'Slide 1: the problem.');
+    turn(code, 't1', 'Write the demo script', 'Step 1: open the app.');
+    turn(code, 't2', 'Shorter', 'Open, type, send.');
+    addContextItem(code, {
+      id: 'k1',
+      ownerUid: 'aarav',
+      kind: 'snippet',
+      title: 'demo.sh',
+      text: 'pnpm dev',
+      createdAt: 9,
+    });
+    const options = { includeContext: true, includeAuthors: true, code: 'K7QM2X', exportedAt: AT };
+    const source = {
+      room: roomDoc,
+      sessions: [
+        { name: 'Design', doc: design },
+        { name: 'Code', doc: code },
+      ],
+    };
+    const md = exportMarkdown(source, options);
+    expect(md).toContain('Room K7Q-M2X · 2 sessions · 3 turns · exported 2026-11-25');
+    expect(md).toContain('Room instructions: You are helping a team prepare a pitch.');
+    expect(md).toContain('## Room context');
+    expect(md).toContain('### judging-criteria.txt (Meera, file)');
+    expect(md.indexOf('## Design')).toBeLessThan(md.indexOf('## Code'));
+    expect(md).toContain('Session instructions: Focus on the slides.');
+    expect(md).toContain('### Turn 2 - sent by Meera');
+    expect(md).toContain('#### demo.sh (Aarav, snippet)');
+    // the room's context is written once, not once per session
+    expect(md.split('judging-criteria.txt (Meera, file)')).toHaveLength(2);
+
+    const json = JSON.parse(exportJson(source, options)) as {
+      format: number;
+      instructions: string;
+      contextItems: unknown[];
+      sessions: {
+        name: string;
+        instructions: string | null;
+        turns: unknown[];
+        contextItems: unknown[];
+      }[];
+    };
+    expect(json.format).toBe(2);
+    expect(json.instructions).toBe('You are helping a team prepare a pitch.');
+    expect(json.contextItems).toHaveLength(2);
+    expect(json.sessions.map((s) => [s.name, s.turns.length, s.contextItems.length])).toEqual([
+      ['Design', 1, 0],
+      ['Code', 2, 1],
+    ]);
+    expect(json.sessions[1]?.instructions).toBeNull();
+
+    // one session alone keeps its name as a heading
+    const one = exportMarkdown({ room: roomDoc, sessions: [{ name: 'Code', doc: code }] }, options);
+    expect(one).toContain('1 session · 2 turns');
+    expect(one).not.toContain('## Design');
   });
 });
 

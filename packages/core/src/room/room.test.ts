@@ -98,11 +98,12 @@ describe('colour slots', () => {
     expect(sx).toBe(1); // x outranks y, so x may take 1 even though y picked it first
   });
 
-  it('the ninth person is over capacity, the first eight are not', () => {
-    const eight = Array.from({ length: 8 }, (_, i) => p(`p${i}`, i + 1, i));
-    expect(isOverCapacity(p('late', 0, 100), eight)).toBe(true);
-    const [firstPerson, ...rest] = eight;
+  it('the 17th person is over capacity, the first sixteen are not', () => {
+    const sixteen = Array.from({ length: 16 }, (_, i) => p(`p${i}`, i + 1, i));
+    expect(isOverCapacity(p('late', 0, 100), sixteen)).toBe(true);
+    const [firstPerson, ...rest] = sixteen;
     if (!firstPerson) throw new Error('missing');
-    expect(isOverCapacity(firstPerson, [...rest, p('late', 8, 100)])).toBe(false);
+    expect(isOverCapacity(firstPerson, [...rest, p('late', 16, 100)])).toBe(false);
+    expect(chooseSlot(p('late', 0, 100), sixteen.slice(0, 15))).toBe(16);
   });
 });
