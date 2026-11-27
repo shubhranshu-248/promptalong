@@ -6,7 +6,10 @@
 //     socket in the same room; only people with a seat in the room may connect
 //   * the room functions of supabase/migrations (POST /api/{name}, JSON in, JSON out):
 //     create_room, join_room, touch_room, leave_room, set_room_locked, remove_member,
-//     transfer_host, delete_room, save_snapshot, load_snapshot
+//     transfer_host, delete_room, save_snapshot, load_snapshot, and the sessions of
+//     supabase/migrations/20261127090000_sessions.sql: list_sessions, create_session,
+//     update_session, delete_session, save_session_snapshot, load_session_snapshot
+//   * a channel per session (`?room=session:{id}`): members and the host only
 // The caller's browser id (`uid` in the body) stands in for a signed-in user. Everything is
 // forgotten when the relay stops.
 //
@@ -27,8 +30,14 @@ const UID_RE = /^[A-Za-z0-9-]{8,64}$/u;
 
 /**
  * @typedef {{ uid: string, slot: number, displayName: string, lastSeen: number, left: boolean, removed: boolean }} Member
- * @typedef {{ id: string, code: string, name: string, hostUid: string, locked: boolean, members: Map<string, Member>, snapshot: string | null }} Room
+ * @typedef {{ id: string, roomId: string, name: string, isDefault: boolean, createdAt: string, members: string[], snapshot: string | null }} Session
+ * @typedef {{ id: string, code: string, name: string, hostUid: string, locked: boolean, members: Map<string, Member>, snapshot: string | null, sessionsRev: number }} Room
  */
+const ROOM_SIZE = 16;
+const SESSION_SIZE = 64;
+const SESSIONS_PER_ROOM = 24;
+/** @type {Map<string, Session>} session id -> session */
+const sessions = new Map();
 /** @type {Map<string, Room>} room id -> room */
 const rooms = new Map();
 /** @type {Map<string, string>} code -> room id */
@@ -46,7 +55,47 @@ const roomJson = (r) => ({
   name: r.name,
   host_uid: r.hostUid,
   locked: r.locked,
+  sessions_rev: r.sessionsRev,
 });
+const sessionJson = (x) => ({
+  id: x.id,
+  room_id: x.roomId,
+  name: x.name,
+  is_default: x.isDefault,
+  created_at: x.createdAt,
+  members: [...x.members],
+});
+const roomSessions = (roomId) => [...sessions.values()].filter((x) => x.roomId === roomId);
+/** a seat in the room, and a member of the session or the room's host */
+function canUseSession(uid, x) {
+  const room = rooms.get(x?.roomId ?? '');
+  const member = room?.members.get(uid);
+  if (!room || !member || !seated(member)) return false;
+  return room.hostUid === uid || x.members.includes(uid);
+}
+function validMembers(room, members) {
+  if (!Array.isArray(members) || members.length < 1 || members.length > SESSION_SIZE) return false;
+  if (new Set(members).size !== members.length) return false;
+  return members.every((m) => {
+    const seat = room.members.get(m);
+    return seat && !seat.removed;
+  });
+}
+function newSession(room, name, members, isDefault) {
+  /** @type {Session} */
+  const x = {
+    id: randomUUID(),
+    roomId: room.id,
+    name,
+    isDefault,
+    createdAt: new Date().toISOString(),
+    members: [...members],
+    snapshot: null,
+  };
+  sessions.set(x.id, x);
+  room.sessionsRev += 1;
+  return x;
+}
 const cleanLine = (text, max) =>
   String(text ?? '')
     // eslint-disable-next-line no-control-regex -- control characters are what is being removed
@@ -98,6 +147,7 @@ const api = {
       locked: false,
       members: new Map(),
       snapshot: null,
+      sessionsRev: 0,
     };
     room.members.set(uid, {
       uid,
@@ -109,6 +159,7 @@ const api = {
     });
     rooms.set(room.id, room);
     codes.set(code, room.id);
+    newSession(room, 'General', [uid], true);
     return { ok: true, room: roomJson(room), slot: 1, uid };
   },
 
@@ -125,10 +176,10 @@ const api = {
       if (rateLimited(uid, 'join', 30)) return fail('rate_limited');
       if (room.locked) return fail('locked', { name: room.name });
     }
-    if (others.length >= 8) return fail('full', { name: room.name });
+    if (others.length >= ROOM_SIZE) return fail('full', { name: room.name });
     const taken = new Set(others.map((m) => m.slot));
     let slot = member && !taken.has(member.slot) ? member.slot : 0;
-    for (let s = 1; s <= 8 && slot === 0; s++) if (!taken.has(s)) slot = s;
+    for (let s = 1; s <= ROOM_SIZE && slot === 0; s++) if (!taken.has(s)) slot = s;
     room.members.set(uid, {
       uid,
       slot,
@@ -137,6 +188,14 @@ const api = {
       left: false,
       removed: false,
     });
+    if (!member) {
+      // a first join also adds the person to the default session, if it has room
+      const general = roomSessions(room.id).find((x) => x.isDefault);
+      if (general && general.members.length < SESSION_SIZE && !general.members.includes(uid)) {
+        general.members.push(uid);
+        room.sessionsRev += 1;
+      }
+    }
     return { ok: true, room: roomJson(room), slot, uid };
   },
 
@@ -173,6 +232,7 @@ const api = {
     if (!member || member.removed) return fail('not_member');
     member.removed = true;
     kick(id, target);
+    for (const x of roomSessions(id)) kick(`session:${x.id}`, target);
     return { ok: true };
   },
 
@@ -191,7 +251,85 @@ const api = {
     rooms.delete(id);
     codes.delete(room.code);
     kick(id, null);
+    for (const x of roomSessions(id)) {
+      kick(`session:${x.id}`, null);
+      sessions.delete(x.id);
+    }
     return { ok: true };
+  },
+
+  list_sessions({ uid, room: id }) {
+    const room = rooms.get(id);
+    const member = room?.members.get(uid);
+    if (!room || !member || !seated(member)) return fail('not_member');
+    const list = roomSessions(id)
+      .filter((x) => canUseSession(uid, x))
+      .sort(
+        (a, b) =>
+          Number(b.isDefault) - Number(a.isDefault) || a.createdAt.localeCompare(b.createdAt),
+      );
+    return { ok: true, rev: room.sessionsRev, sessions: list.map(sessionJson) };
+  },
+
+  create_session({ uid, room: id, name, members }) {
+    const room = rooms.get(id);
+    const me = room?.members.get(uid);
+    if (!room || room.hostUid !== uid || !me || !seated(me)) return fail('not_host');
+    const clean = cleanLine(name, 40);
+    if (!clean || !validMembers(room, members)) return fail('invalid');
+    if (roomSessions(id).length >= SESSIONS_PER_ROOM) return fail('too_many');
+    return { ok: true, session: sessionJson(newSession(room, clean, members, false)) };
+  },
+
+  update_session({ uid, session: sid, name, members }) {
+    const x = sessions.get(sid);
+    const room = rooms.get(x?.roomId ?? '');
+    if (!x || !room || room.hostUid !== uid) return fail('not_host');
+    if (name !== null && name !== undefined) {
+      const clean = cleanLine(name, 40);
+      if (!clean) return fail('invalid');
+      x.name = clean;
+    }
+    if (members !== null && members !== undefined) {
+      if (!validMembers(room, members)) return fail('invalid');
+      const gone = x.members.filter((m) => !members.includes(m));
+      // keep the people already in it first, in their order, then the new ones
+      x.members = [
+        ...x.members.filter((m) => members.includes(m)),
+        ...members.filter((m) => !x.members.includes(m)),
+      ];
+      for (const m of gone) if (m !== room.hostUid) kick(`session:${x.id}`, m);
+    }
+    room.sessionsRev += 1;
+    return { ok: true, session: sessionJson(x) };
+  },
+
+  delete_session({ uid, session: sid }) {
+    const x = sessions.get(sid);
+    const room = rooms.get(x?.roomId ?? '');
+    if (!x || !room || room.hostUid !== uid) return fail('not_host');
+    if (x.isDefault) return fail('invalid');
+    sessions.delete(sid);
+    room.sessionsRev += 1;
+    kick(`session:${sid}`, null);
+    return { ok: true };
+  },
+
+  save_session_snapshot({ uid, session: sid, state }) {
+    const x = sessions.get(sid);
+    if (!x || !canUseSession(uid, x)) return fail('not_member');
+    if (typeof state !== 'string' || state.length === 0 || !/^[A-Za-z0-9+/]+=*$/u.test(state)) {
+      return fail('invalid');
+    }
+    if (Math.floor((state.length * 3) / 4) > MAX_SNAPSHOT) return fail('too_large');
+    x.snapshot = state;
+    return { ok: true };
+  },
+
+  load_session_snapshot({ uid, session: sid }) {
+    const x = sessions.get(sid);
+    if (!x || !canUseSession(uid, x)) return fail('not_member');
+    return { ok: true, state: x.snapshot };
   },
 
   save_snapshot({ uid, room: id, state }) {
@@ -266,9 +404,15 @@ wss.on('connection', (socket, req) => {
   const url = new URL(req.url ?? '/', 'http://localhost');
   const roomId = url.searchParams.get('room') ?? '';
   const uid = url.searchParams.get('uid') ?? '';
-  const member = rooms.get(roomId)?.members.get(uid);
-  // like a private channel: only people with a seat in the room get in
-  if (!member || !seated(member)) {
+  // like a private channel: only people with a seat in the room get in; a session's channel
+  // only its members and the room's host
+  const allowed = roomId.startsWith('session:')
+    ? canUseSession(uid, sessions.get(roomId.slice('session:'.length)))
+    : (() => {
+        const member = rooms.get(roomId)?.members.get(uid);
+        return Boolean(member && seated(member));
+      })();
+  if (!allowed) {
     socket.close(1008, 'no seat');
     return;
   }

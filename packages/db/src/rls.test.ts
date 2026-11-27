@@ -23,6 +23,9 @@ describe('schema', () => {
       'room_members',
       'room_snapshots',
       'rooms',
+      'session_members',
+      'session_snapshots',
+      'sessions',
     ]);
     expect(tables.every((t) => t.relrowsecurity)).toBe(true);
     const columns = await db.admin<{ column_name: string }>(
@@ -126,11 +129,11 @@ describe('join_room', () => {
     expect(await db.as(meera, 'select code from public.rooms')).toEqual([{ code }]);
   });
 
-  it('the 9th person is refused; a seat that went quiet is given away, with its colour', async () => {
+  it('the 17th person is refused; a seat that went quiet is given away, with its colour', async () => {
     const host = await db.user();
     const { id, code } = await db.room(host);
     const people: string[] = [];
-    for (let i = 2; i <= 8; i++) {
+    for (let i = 2; i <= 16; i++) {
       const p = await db.user();
       people.push(p);
       expect(await db.call(p, 'join_room', code, `P${String(i)}`)).toMatchObject({
@@ -138,8 +141,8 @@ describe('join_room', () => {
         slot: i,
       });
     }
-    const ninth = await db.user();
-    expect(await db.call(ninth, 'join_room', code, 'Ninth')).toMatchObject({
+    const late = await db.user();
+    expect(await db.call(late, 'join_room', code, 'Late')).toMatchObject({
       ok: false,
       reason: 'full',
       name: 'Hackathon pitch',
@@ -150,7 +153,7 @@ describe('join_room', () => {
       `update public.room_members set last_seen_at = now() - interval '2 minutes' where room_id = $1 and uid = $2`,
       [id, quiet],
     );
-    expect(await db.call(ninth, 'join_room', code, 'Ninth')).toMatchObject({ ok: true, slot: 4 });
+    expect(await db.call(late, 'join_room', code, 'Late')).toMatchObject({ ok: true, slot: 4 });
     // ... and when they come back the room is full for them
     expect(reason(await db.call(quiet, 'join_room', code, 'P4'))).toBe('full');
   });
