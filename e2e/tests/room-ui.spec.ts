@@ -29,10 +29,26 @@ test.describe('room interface', () => {
     }
   });
 
-  test('Copy puts the exact answer on the clipboard; Retry asks again', async ({ browser }) => {
+  test('Copy puts the exact answer on the clipboard; Retry asks again', async ({
+    browser,
+    browserName,
+  }) => {
     const aarav = await person(browser, 'Aarav');
+    // Clipboard permissions can only be granted in Chromium; elsewhere the test reads what the
+    // page wrote to the clipboard.
+    const realClipboard = browserName === 'chromium';
     try {
-      await aarav.context.grantPermissions(['clipboard-read', 'clipboard-write']);
+      if (realClipboard) {
+        await aarav.context.grantPermissions(['clipboard-read', 'clipboard-write']);
+      } else {
+        await aarav.page.addInitScript(() => {
+          const w = window as unknown as { copied?: string };
+          navigator.clipboard.writeText = (text: string) => {
+            w.copied = text;
+            return Promise.resolve();
+          };
+        });
+      }
       await createRoom(aarav);
       await editor(aarav).click();
       await aarav.page.keyboard.type('/short Three slide titles');
@@ -42,7 +58,9 @@ test.describe('room interface', () => {
       const shown = (await answer.getByTestId('answer-text').innerText()).trim();
       await answer.getByRole('button', { name: 'Copy answer' }).click();
       await expect(answer.getByRole('button', { name: 'Copied' })).toBeVisible();
-      const copied = await aarav.page.evaluate(() => navigator.clipboard.readText());
+      const copied = realClipboard
+        ? await aarav.page.evaluate(() => navigator.clipboard.readText())
+        : await aarav.page.evaluate(() => (window as unknown as { copied?: string }).copied ?? '');
       expect(copied.length).toBeGreaterThan(0);
       expect(shown.replace(/\s+/gu, ' ')).toContain(
         copied.split('\n')[0]?.replace(/[*#`]/gu, '').trim() ?? '',
