@@ -1,5 +1,5 @@
 import type * as Y from 'yjs';
-import { tipOf } from '../branches/branches';
+import { tipOf } from '../history/history';
 import { assembleRoom, draftPrompt } from '../context/assemble';
 import type { Span } from '../provenance/spans';
 import { MAIN_BRANCH, clearPrompt } from '../room/doc';
@@ -44,8 +44,6 @@ export interface SendRequest {
   promptText: string;
   /** author spans of promptText (Retry); a normal Send reads them from the draft */
   spans?: Span[];
-  /** the branch the turn belongs to (default main) */
-  branchId?: string;
   provider: TurnProvider;
   /** builds the exact body from the messages (shown by the panel, posted by Send) */
   buildBody: (messages: { role: 'user' | 'assistant' | 'system'; content: string }[]) => string;
@@ -173,11 +171,10 @@ export class StreamCoordinator {
     // A normal Send freezes the prompt as it is now, not as it was at the click: letters a
     // co-writer typed during the claim window belong to this turn. Reading, adding the turn and
     // clearing run with no await in between, so nothing can arrive that is cleared but not sent.
-    const branchId = req.branchId ?? MAIN_BRANCH;
-    const fromDraft = req.clearPrompt ? draftPrompt(this.doc, branchId) : null;
+    const fromDraft = req.clearPrompt ? draftPrompt(this.doc) : null;
     const sent = fromDraft?.text ? fromDraft : { text: req.promptText, spans: req.spans ?? [] };
     // The same function the context panel shows: room line, included context, history, prompt.
-    const assembled = assembleRoom(this.doc, branchId, { prompt: sent.text });
+    const assembled = assembleRoom(this.doc, { prompt: sent.text });
     const body = req.buildBody(assembled.messages);
     const context: TurnContextRecord[] = assembled.items.map((item) => {
       const counted = req.tokens?.(item.block) ?? null;
@@ -198,8 +195,8 @@ export class StreamCoordinator {
     this.doc.transact(() => {
       answer = addTurn(this.doc, {
         id: turnId,
-        branchId,
-        parentId: tipOf(this.doc, branchId),
+        branchId: MAIN_BRANCH,
+        parentId: tipOf(this.doc),
         createdAt: started,
         sentBy: this.o.pid,
         senderName: this.o.name(),
@@ -211,7 +208,7 @@ export class StreamCoordinator {
         systemLine: assembled.systemLine,
       });
       lockMap(this.doc).set('current', { ...claim, turnId, beat: 1 });
-      if (req.clearPrompt) clearPrompt(this.doc, branchId);
+      if (req.clearPrompt) clearPrompt(this.doc);
     });
     const [requestHash, ...hashes] = await Promise.all([
       sha256Hex(body),

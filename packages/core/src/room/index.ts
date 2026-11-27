@@ -4,7 +4,6 @@ export {
   ROOM_NAME_MAX,
   cleanRoomName,
   clearPrompt,
-  draftFragment,
   MAIN_BRANCH,
   readRoomModel,
   setRoomModel,

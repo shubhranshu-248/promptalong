@@ -3,9 +3,7 @@ import * as Y from 'yjs';
 import {
   MAIN_BRANCH,
   MemoryHub,
-  createBranch,
-  draftFragment,
-  turnsOnPath,
+  conversation,
   RoomSync,
   StreamCoordinator,
   clearPrompt,
@@ -280,8 +278,8 @@ describe('shared stream', () => {
   });
 });
 
-describe('send on a branch', () => {
-  it('uses the branch draft, freezes who wrote what, clears only that draft', async () => {
+describe('send from the shared draft', () => {
+  it('freezes who wrote what, links to the turn before, sends the history, clears the draft', async () => {
     const { peers } = await room(2);
     const [a, b] = peers;
     if (!a || !b) return;
@@ -289,22 +287,13 @@ describe('send on a branch', () => {
     await a.co.send(request(m.stream, 'first'));
     await until(() => listTurns(b.doc)[0]?.status === 'done' && readLock(b.doc) === null);
     const first = listTurns(a.doc)[0]?.id ?? null;
-    createBranch(a.doc, {
-      id: 'br',
-      name: 'try',
-      fromTurnId: first,
-      sourceBranch: MAIN_BRANCH,
-      by: 'p1',
-      at: 5,
-    });
-    const text = (draftFragment(a.doc, 'br').get(0) as Y.XmlElement).get(0) as Y.XmlText;
+    const text = (promptFragment(a.doc).get(0) as Y.XmlElement).get(0) as Y.XmlText;
     text.insert(0, 'Make it ', { author: { uid: 'p1' } });
     text.insert(8, 'shorter', { author: { uid: 'p2' } });
-    ((promptFragment(a.doc).get(0) as Y.XmlElement).get(0) as Y.XmlText).insert(0, 'main draft');
-    await a.co.send({ ...request(m.stream, 'ignored'), branchId: 'br' });
+    await a.co.send(request(m.stream, 'ignored'));
     await until(() => listTurns(b.doc).length === 2 && listTurns(b.doc)[1]?.status === 'done');
     const turn = listTurns(b.doc)[1];
-    expect(turn).toMatchObject({ branchId: 'br', parentId: first });
+    expect(turn).toMatchObject({ branchId: MAIN_BRANCH, parentId: first });
     expect(turn?.prompt).toEqual({
       text: 'Make it shorter',
       spans: [
@@ -312,9 +301,8 @@ describe('send on a branch', () => {
         { from: 8, to: 15, uid: 'p2' },
       ],
     });
-    expect(promptText(b.doc, 'br')).toBe('');
-    expect(promptText(b.doc)).toBe('main draft');
-    expect(turnsOnPath(b.doc, MAIN_BRANCH)).toHaveLength(1);
+    expect(promptText(b.doc)).toBe('');
+    expect(conversation(b.doc)).toHaveLength(2);
     const history = JSON.parse(m.seen[1]?.body ?? '{}') as { messages: { content: string }[] };
     expect(history.messages.map((x) => x.content)).toEqual(['first', 'ok', 'Make it shorter']);
   });

@@ -3,7 +3,6 @@ import {
   MAIN_BRANCH,
   addContextItem,
   addTurn,
-  createBranch,
   exportFileName,
   exportJson,
   exportMarkdown,
@@ -63,17 +62,15 @@ function turn(
   text: string,
   answer: string,
   extra: {
-    branchId?: string;
     status?: string;
     spans?: { from: number; to: number; uid: string }[];
   } = {},
 ): void {
-  const branchId = extra.branchId ?? MAIN_BRANCH;
   doc.transact(() => {
     const a = addTurn(doc, {
       id,
-      branchId,
-      parentId: tipOf(doc, branchId),
+      branchId: MAIN_BRANCH,
+      parentId: tipOf(doc),
       createdAt: AT + Number(id.slice(1)) * 60_000,
       sentBy: 'meera',
       senderName: 'Meera',
@@ -114,7 +111,6 @@ describe('export', () => {
     });
     turn(doc, 't2', 'Now shorter', 'Half as long.', { status: 'stopped' });
     const md = exportMarkdown(doc, {
-      branchId: MAIN_BRANCH,
       includeContext: true,
       includeAuthors: true,
       code: 'K7QM2X',
@@ -124,7 +120,7 @@ describe('export', () => {
       [
         '# Hackathon pitch',
         '',
-        'Room K7Q-M2X · branch main · 2 turns · exported 2026-11-25',
+        'Room K7Q-M2X · 2 turns · exported 2026-11-25',
         '',
         '## Turn 1 - sent by Meera',
         '',
@@ -171,7 +167,6 @@ describe('export', () => {
     const doc = room();
     turn(doc, 't1', 'Write a pitch', 'Opening.', { spans: [{ from: 0, to: 13, uid: 'aarav' }] });
     const options = {
-      branchId: MAIN_BRANCH,
       includeContext: false,
       includeAuthors: false,
       code: 'K7QM2X',
@@ -190,22 +185,12 @@ describe('export', () => {
     expect(json.turns[0]?.prompt.segments[0]?.author).toBe('Person 2');
   });
 
-  it('JSON: the full record of one branch, with the branch tree', () => {
+  it('JSON: the full record of the conversation', () => {
     const doc = room();
     turn(doc, 't1', 'first', 'answer one', { spans: [{ from: 0, to: 5, uid: 'aarav' }] });
     turn(doc, 't2', 'second', 'answer two');
-    createBranch(doc, {
-      id: 'b1',
-      name: 'shorter',
-      fromTurnId: 't1',
-      sourceBranch: MAIN_BRANCH,
-      by: 'meera',
-      at: AT,
-    });
-    turn(doc, 't3', 'second, but shorter', 'short answer', { branchId: 'b1' });
     const json = JSON.parse(
       exportJson(doc, {
-        branchId: 'b1',
         includeContext: true,
         includeAuthors: true,
         code: 'K7QM2X',
@@ -213,7 +198,6 @@ describe('export', () => {
       }),
     ) as Record<string, unknown> & {
       turns: Record<string, unknown>[];
-      branches: unknown[];
       contextItems: unknown[];
     };
     expect(json).toMatchObject({
@@ -221,12 +205,12 @@ describe('export', () => {
       format: 1,
       exportedAt: '2026-11-25T09:30:00.000Z',
       room: { name: 'Hackathon pitch', code: 'K7QM2X' },
-      branch: 'shorter',
       roomLine: 'You are helping a team prepare a pitch.',
     });
-    expect(json.turns.map((t) => [t.label, t.branch, t.answer])).toEqual([
-      ['T1', 'main', 'answer one'],
-      ['T2b', 'shorter', 'short answer'],
+    expect(json).not.toHaveProperty('branches');
+    expect(json.turns.map((t) => [t.label, t.answer])).toEqual([
+      ['T1', 'answer one'],
+      ['T2', 'answer two'],
     ]);
     expect(json.turns[0]).toMatchObject({
       sentBy: 'Meera',
@@ -237,10 +221,6 @@ describe('export', () => {
       status: 'done',
       usage: { input: 1284, output: 212 },
     });
-    expect(json.branches).toEqual([
-      { name: 'main', from: null, createdBy: null },
-      { name: 'shorter', from: 'T1', createdBy: 'Meera' },
-    ]);
     expect(json.contextItems).toHaveLength(2);
   });
 
@@ -252,7 +232,6 @@ describe('export', () => {
       .set('model', { kind: 'byok', model: 'm', endpoint: 'openai', key: 'sk-secret-123' });
     turn(doc, 't1', 'first', 'answer');
     const options = {
-      branchId: MAIN_BRANCH,
       includeContext: true,
       includeAuthors: true,
       code: 'K7QM2X',
@@ -263,23 +242,18 @@ describe('export', () => {
     expect(Object.keys(JSON.parse(exportJson(doc, options)) as object)).not.toContain('key');
   });
 
-  it('an empty branch and file names', () => {
+  it('an empty room and file names', () => {
     const doc = room();
     const md = exportMarkdown(doc, {
-      branchId: MAIN_BRANCH,
       includeContext: false,
       includeAuthors: true,
       code: 'K7QM2X',
       exportedAt: AT,
     });
     expect(md).toContain('0 turns');
-    expect(md).toContain('Nothing has been sent on this branch yet.');
-    expect(exportFileName('Hackathon pitch!', 'main', AT, 'md')).toBe(
-      'hackathon-pitch-2026-11-25.md',
-    );
-    expect(exportFileName('  ', 'Shorter version', AT, 'json')).toBe(
-      'room-shorter-version-2026-11-25.json',
-    );
+    expect(md).toContain('Nothing has been sent in this room yet.');
+    expect(exportFileName('Hackathon pitch!', AT, 'md')).toBe('hackathon-pitch-2026-11-25.md');
+    expect(exportFileName('  ', AT, 'json')).toBe('room-2026-11-25.json');
   });
 });
 

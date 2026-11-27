@@ -1,8 +1,7 @@
 import type * as Y from 'yjs';
-import { historyEntries } from '../branches/branches';
-import { authorsMap } from '../branches/fork';
+import { historyEntries } from '../history/history';
 import { fragmentWithSpans, trimWithSpans, type Span } from '../provenance/spans';
-import { MAIN_BRANCH, draftFragment, peopleMap } from '../room/doc';
+import { promptFragment, peopleMap } from '../room/doc';
 import { listContextWithText, readSystemLine, type ContextKind } from './context';
 
 /**
@@ -10,7 +9,7 @@ import { listContextWithText, readSystemLine, type ContextKind } from './context
  * both call this, so what the panel shows is what is sent:
  *   1. one leading system message: the room line (if any), then every included context item in
  *      creation order, each as "[context: {title} · {owner}]\n{text}", separated by a blank line
- *   2. the branch history (prompt + answer of every finished turn)
+ *   2. the conversation so far (prompt + answer of every finished turn)
  *   3. the prompt
  * Nothing else is added. With no room line and no included item there is no system message.
  */
@@ -143,37 +142,28 @@ export function assemble(input: AssembleInput): Assembled {
 }
 
 /** The draft prompt as Send freezes it: trimmed, with its author spans. */
-export function draftPrompt(
-  doc: Y.Doc,
-  branchId: string = MAIN_BRANCH,
-): { text: string; spans: Span[] } {
-  const draft = fragmentWithSpans(draftFragment(doc, branchId));
+export function draftPrompt(doc: Y.Doc): { text: string; spans: Span[] } {
+  const draft = fragmentWithSpans(promptFragment(doc));
   return trimWithSpans(draft.text, draft.spans);
 }
 
 /**
- * The name written into a context block. It is read from the room document only (people list,
- * then the frozen authors of a forked room), so every device builds the same bytes.
+ * The name written into a context block. It is read from the room document only (the people
+ * list), so every device builds the same bytes.
  */
 export function contextOwnerName(doc: Y.Doc, uid: string): string {
   const person = peopleMap(doc).get(uid) as { name?: unknown } | undefined;
   if (typeof person?.name === 'string' && person.name) return person.name.slice(0, 24);
-  const author = authorsMap(doc).get(uid) as { name?: unknown } | undefined;
-  if (typeof author?.name === 'string' && author.name) return author.name.slice(0, 24);
   return 'someone';
 }
 
-/** Assembles the request for a branch from the room document (prompt = its draft unless given). */
-export function assembleRoom(
-  doc: Y.Doc,
-  branchId: string = MAIN_BRANCH,
-  options: { prompt?: string } = {},
-): Assembled {
+/** Assembles the request from the room document (prompt = the shared draft unless given). */
+export function assembleRoom(doc: Y.Doc, options: { prompt?: string } = {}): Assembled {
   return assemble({
     systemLine: readSystemLine(doc),
     items: listContextWithText(doc),
     ownerName: (uid) => contextOwnerName(doc, uid),
-    history: historyEntries(doc, branchId),
-    prompt: options.prompt ?? draftPrompt(doc, branchId).text,
+    history: historyEntries(doc),
+    prompt: options.prompt ?? draftPrompt(doc).text,
   });
 }

@@ -1,19 +1,16 @@
 import type * as Y from 'yjs';
-import { listBranches, listMergeEvents, turnLabels, turnsOnPath } from '../branches/branches';
-import { readAuthors } from '../branches/fork';
+import { conversation, turnLabels } from '../history/history';
 import { listContextWithText, readSystemLine } from '../context/context';
-import { MAIN_BRANCH, peopleMap, readSettings } from '../room/doc';
+import { peopleMap, readSettings } from '../room/doc';
 import { formatRoomCode } from '../room-code';
 import type { TurnView } from '../turns/turns';
 
 /**
- * Export (8.8): one branch of the conversation as Markdown (readable) or JSON (the full record:
- * prompt segments with authors, context, model, timestamps, the branch tree). Built in the
- * browser from the room document. A room document never holds a model key, so an export cannot
- * contain one.
+ * Export (8.8): the conversation as Markdown (readable) or JSON (the full record: prompt segments
+ * with authors, context, model, timestamps). Built in the browser from the room document. A room
+ * document never holds a model key, so an export cannot contain one.
  */
 export interface ExportOptions {
-  branchId: string;
   /** the context each turn used, and the room's context items with their text */
   includeContext: boolean;
   /** real display names; when off, people become "Person 1", "Person 2"... */
@@ -24,7 +21,6 @@ export interface ExportOptions {
 
 function namer(doc: Y.Doc, includeAuthors: boolean): (pid: string) => string {
   const names = new Map<string, string>();
-  for (const [pid, a] of readAuthors(doc)) names.set(pid, a.name);
   peopleMap(doc).forEach((rec, pid) => {
     if (typeof rec === 'object' && typeof rec.name === 'string') names.set(pid, rec.name);
   });
@@ -38,11 +34,6 @@ function namer(doc: Y.Doc, includeAuthors: boolean): (pid: string) => string {
     }
     return label;
   };
-}
-
-function branchLabel(doc: Y.Doc, branchId: string): string {
-  if (branchId === MAIN_BRANCH) return 'main';
-  return listBranches(doc).find((b) => b.id === branchId)?.name ?? branchId;
 }
 
 /** The authors of a prompt in the order they first appear. */
@@ -76,15 +67,15 @@ const quote = (text: string) =>
 export function exportMarkdown(doc: Y.Doc, options: ExportOptions): string {
   const name = namer(doc, options.includeAuthors);
   const labels = turnLabels(doc);
-  const turns = turnsOnPath(doc, options.branchId);
+  const turns = conversation(doc);
   const settings = readSettings(doc);
   const out: string[] = [];
   out.push(`# ${settings?.name ?? 'Untitled room'}`, '');
   out.push(
-    `Room ${formatRoomCode(options.code)} · branch ${branchLabel(doc, options.branchId)} · ${String(turns.length)} ${turns.length === 1 ? 'turn' : 'turns'} · exported ${new Date(options.exportedAt).toISOString().slice(0, 10)}`,
+    `Room ${formatRoomCode(options.code)} · ${String(turns.length)} ${turns.length === 1 ? 'turn' : 'turns'} · exported ${new Date(options.exportedAt).toISOString().slice(0, 10)}`,
     '',
   );
-  if (turns.length === 0) out.push('Nothing has been sent on this branch yet.', '');
+  if (turns.length === 0) out.push('Nothing has been sent in this room yet.', '');
   for (const turn of turns) {
     const label = labels.get(turn.id) ?? '';
     out.push(
@@ -136,11 +127,10 @@ export function exportJson(doc: Y.Doc, options: ExportOptions): string {
   const labels = turnLabels(doc);
   const settings = readSettings(doc);
   const person = (pid: string | undefined | null) => (pid ? name(pid) : null);
-  const turns = turnsOnPath(doc, options.branchId).map((turn) => ({
+  const turns = conversation(doc).map((turn) => ({
     label: labels.get(turn.id) ?? null,
     id: turn.id,
     parentId: turn.parentId,
-    branch: branchLabel(doc, turn.branchId),
     sentAt: new Date(turn.createdAt).toISOString(),
     sentBy: name(turn.sentBy),
     prompt: {
@@ -185,21 +175,8 @@ export function exportJson(doc: Y.Doc, options: ExportOptions): string {
     format: 1,
     exportedAt: new Date(options.exportedAt).toISOString(),
     room: { name: settings?.name ?? 'Untitled room', code: options.code },
-    branch: branchLabel(doc, options.branchId),
     authorNames: options.includeAuthors,
     turns,
-    branches: listBranches(doc).map((b) => ({
-      name: b.id === MAIN_BRANCH ? 'main' : b.name,
-      from: b.fromTurnId ? (labels.get(b.fromTurnId) ?? b.fromTurnId) : null,
-      createdBy: b.id === MAIN_BRANCH ? null : name(b.createdBy),
-    })),
-    merges: listMergeEvents(doc).map((m) => ({
-      from: branchLabel(doc, m.from),
-      into: branchLabel(doc, m.into),
-      by: name(m.by),
-      at: new Date(m.at).toISOString(),
-      conflicts: m.conflicts,
-    })),
     ...(options.includeContext
       ? {
           roomLine: readSystemLine(doc) || null,
@@ -216,19 +193,13 @@ export function exportJson(doc: Y.Doc, options: ExportOptions): string {
   return `${JSON.stringify(record, null, 2)}\n`;
 }
 
-/** A file name for the download: room name, branch, date. */
-export function exportFileName(
-  roomName: string,
-  branch: string,
-  at: number,
-  ext: 'md' | 'json',
-): string {
+/** A file name for the download: room name and date. */
+export function exportFileName(roomName: string, at: number, ext: 'md' | 'json'): string {
   const slug = (text: string) =>
     text
       .toLowerCase()
       .replace(/[^a-z0-9]+/gu, '-')
       .replace(/^-+|-+$/gu, '')
       .slice(0, 40);
-  const parts = [slug(roomName) || 'room', branch === 'main' ? '' : slug(branch)].filter(Boolean);
-  return `${parts.join('-')}-${new Date(at).toISOString().slice(0, 10)}.${ext}`;
+  return `${slug(roomName) || 'room'}-${new Date(at).toISOString().slice(0, 10)}.${ext}`;
 }
