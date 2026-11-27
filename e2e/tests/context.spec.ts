@@ -144,10 +144,10 @@ test.describe('context panel', () => {
       await aarav.page.getByTestId('room-line-save').click();
 
       await aarav.page.getByTestId('model-button').click();
-      const dialog = aarav.page.getByRole('dialog', { name: 'Model for this room' });
+      const dialog = aarav.page.getByRole('dialog', { name: 'Model for this session' });
       await dialog.getByText('Your own key', { exact: true }).click();
       await dialog.getByTestId('key-input').fill('sk-test-PA-context-1');
-      await dialog.getByRole('button', { name: 'Use for this room' }).click();
+      await dialog.getByRole('button', { name: 'Use for this session' }).click();
       await expect(dialog).toBeHidden();
 
       await write(meera, 'Turn this into three slide titles — "short" ones.');

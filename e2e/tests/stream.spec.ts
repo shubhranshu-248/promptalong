@@ -296,10 +296,10 @@ test.describe('your own key', () => {
       await joinRoom(meera, code);
 
       await aarav.page.getByTestId('model-button').click();
-      const dialog = aarav.page.getByRole('dialog', { name: 'Model for this room' });
+      const dialog = aarav.page.getByRole('dialog', { name: 'Model for this session' });
       await dialog.getByText('Your own key', { exact: true }).click();
       await dialog.getByTestId('key-input').fill(CANARY);
-      await dialog.getByRole('button', { name: 'Use for this room' }).click();
+      await dialog.getByRole('button', { name: 'Use for this session' }).click();
       await expect(dialog).toBeHidden();
 
       // Meera sees whose key it is, never the key
