@@ -54,7 +54,9 @@ test.describe('room access', () => {
     try {
       const code = await createRoom(aarav);
       await joinRoom(meera, code);
-      await expect(aarav.page.getByTestId('room-lock')).toHaveText('Room lockOpen');
+      await expect(aarav.page.getByTestId('room-lock')).toContainText(
+        'Open to anyone with the code',
+      );
       // only the host has the Lock button
       await expect(meera.page.getByTestId('lock-button')).toHaveCount(0);
 
@@ -62,7 +64,9 @@ test.describe('room access', () => {
       await expect(aarav.page.getByTestId('access-notice')).toContainText('Room locked');
       await expect(aarav.page.getByTestId('lock-button')).toHaveText('Unlock');
       await expect(meera.page.getByTestId('locked-chip')).toBeVisible(); // everyone sees it at once
-      await expect(meera.page.getByTestId('room-lock')).toHaveText('Room lockLocked');
+      await expect(meera.page.getByTestId('room-lock')).toContainText(
+        'Locked: no one new can join',
+      );
 
       await kabir.page.goto(`/r/${code}`);
       const locked = kabir.page.getByTestId('room-locked');
@@ -242,6 +246,7 @@ test.describe('export', () => {
       const code = await createRoom(aarav);
       await joinRoom(meera, code);
       // context from Meera, a prompt written by both
+      await meera.page.getByTestId('context-button').click();
       await meera.page
         .getByTestId('context-panel')
         .getByRole('button', { name: 'Add note' })
@@ -264,7 +269,6 @@ test.describe('export', () => {
       await openRoomMenu(meera);
       await meera.page.getByRole('menuitem', { name: 'Export' }).click();
       const dialog = meera.page.getByRole('dialog', { name: 'Export conversation' });
-      await expect(dialog.getByTestId('export-branch')).toHaveValue('main');
       await expect(dialog.getByTestId('export-preview')).toContainText('## Turn 1 - sent by Aarav');
       expect(await axe(meera.page)).toEqual([]);
 
@@ -275,9 +279,7 @@ test.describe('export', () => {
       expect(md.suggestedFilename()).toMatch(/^hackathon-pitch-\d{4}-\d{2}-\d{2}\.md$/u);
       const markdown = await readFile(await md.path(), 'utf8');
       expect(markdown).toContain('# Hackathon pitch');
-      expect(markdown).toContain(
-        `Room ${code.slice(0, 3)}-${code.slice(3)} · branch main · 1 turn`,
-      );
+      expect(markdown).toContain(`Room ${code.slice(0, 3)}-${code.slice(3)} · 1 turn`);
       expect(markdown).toContain('**Prompt** (Aarav, Meera)');
       expect(markdown).toContain('> /short Make it 2 minutes');
       expect(markdown).toContain('Context: Survey numbers (Meera)');
