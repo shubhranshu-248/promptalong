@@ -34,8 +34,14 @@ async function openPanel(p: Person): Promise<void> {
   await expect(panel(p)).toBeVisible();
 }
 
-async function addNote(p: Person, title: string, text: string): Promise<void> {
+async function addNote(
+  p: Person,
+  title: string,
+  text: string,
+  scope: 'session' | 'room' = 'session',
+): Promise<void> {
   await openPanel(p);
+  await panel(p).getByTestId(`context-scope-${scope}`).click();
   await panel(p).getByRole('button', { name: 'Add note' }).click();
   const dialog = p.page.getByRole('dialog', { name: 'Add a note' });
   await dialog.getByTestId('item-title').fill(title);
@@ -131,7 +137,7 @@ test.describe('context panel', () => {
       await item(meera, 'Old pitch draft').getByRole('checkbox').uncheck();
       await expect(item(aarav, 'Old pitch draft')).toContainText('excluded by Meera');
       await panel(aarav).getByTestId('ctx-tab-payload').click();
-      await panel(aarav).getByRole('button', { name: 'Add room line' }).click();
+      await panel(aarav).getByRole('button', { name: 'Add room instructions' }).click();
       await aarav.page
         .getByTestId('room-line-input')
         .fill('You are helping a team prepare a pitch.');
@@ -380,7 +386,7 @@ test.describe('context panel', () => {
       await item(aarav, 'criteria.md')
         .getByRole('button', { name: 'More for criteria.md' })
         .click();
-      await aarav.page.getByRole('menuitem', { name: 'Remove from the room…' }).click();
+      await aarav.page.getByRole('menuitem', { name: 'Remove from this session…' }).click();
       await aarav.page.getByTestId('item-remove-confirm').click();
       await expect(panel(aarav).getByTestId('context-item')).toHaveCount(0);
     } finally {
@@ -399,7 +405,9 @@ test.describe('context panel', () => {
       const code = await createRoom(aarav);
       await joinRoom(meera, code);
       await joinRoom(kabir, code);
-      await addNote(meera, 'Survey numbers', '61 of 80 students');
+      // a note for the whole room: every session gets it
+      await addNote(meera, 'Survey numbers', '61 of 80 students', 'room');
+      await expect(panel(meera).getByTestId('context-room')).toContainText('Survey numbers');
       await openPanel(kabir);
       await expect(item(kabir, 'Survey numbers')).toContainText('Meera · note');
 

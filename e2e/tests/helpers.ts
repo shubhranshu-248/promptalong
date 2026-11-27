@@ -16,6 +16,26 @@ export async function person(browser: Browser, name: string): Promise<Person> {
   return { context, page, name };
 }
 
+/**
+ * Fills seats of a room straight through the local relay, without opening a browser for each
+ * person (a room holds 16). A seat taken this way counts as present for 90 seconds.
+ */
+export async function takeSeats(code: string, count: number, prefix = 'seat'): Promise<void> {
+  for (let i = 0; i < count; i++) {
+    const res = await fetch('http://localhost:8787/api/join_room', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        uid: `${prefix}-${String(i)}-${code}`,
+        code,
+        displayName: `Seat ${String(i + 1)}`,
+      }),
+    });
+    const json = (await res.json()) as { ok?: boolean; reason?: string };
+    if (json.ok !== true) throw new Error(`seat ${String(i)}: ${json.reason ?? 'refused'}`);
+  }
+}
+
 export async function closeAll(people: Person[]): Promise<void> {
   await Promise.all(people.map((p) => p.context.close()));
 }

@@ -8,6 +8,7 @@ import {
   joinRoom,
   person,
   promptText,
+  takeSeats,
   type Person,
 } from './helpers';
 
@@ -204,33 +205,27 @@ test.describe('room access', () => {
     }
   });
 
-  test('a seat is freed when someone leaves: the ninth person gets in after that', async ({
+  test('a seat is freed when someone leaves: the 17th person gets in after that', async ({
     browser,
   }) => {
     const host = await person(browser, 'Host');
-    const others: Person[] = [];
-    const ninth = await person(browser, 'Ninth');
+    const leaver = await person(browser, 'Leaver');
+    const late = await person(browser, 'Late');
     try {
       const code = await createRoom(host);
-      for (let i = 2; i <= 8; i++) {
-        const p = await person(browser, `P${String(i)}`);
-        others.push(p);
-        await joinRoom(p, code);
-      }
-      await ninth.page.goto(`/r/${code}`);
-      await expect(ninth.page.getByTestId('room-full')).toBeVisible();
+      await joinRoom(leaver, code);
+      await takeSeats(code, 14); // 16 people
+      await late.page.goto(`/r/${code}`);
+      await expect(late.page.getByTestId('room-full')).toBeVisible();
       // leaving through the menu frees the seat at once; a closed tab frees it after 90 seconds
-      const leaver = others[others.length - 1];
-      if (leaver) {
-        await leaver.page.getByRole('button', { name: 'Room menu' }).click();
-        await leaver.page.getByRole('menuitem', { name: 'Leave room' }).click();
-        await expect(leaver.page).not.toHaveURL(/\/r\//);
-      }
-      await expect(host.page.getByTestId('people-list').locator('li')).toHaveCount(7);
-      await ninth.page.getByTestId('room-full').getByRole('button', { name: 'Try again' }).click();
-      await expect(ninth.page.getByTestId('prompt-editor')).toBeVisible();
+      await leaver.page.getByRole('button', { name: 'Room menu' }).click();
+      await leaver.page.getByRole('menuitem', { name: 'Leave room' }).click();
+      await expect(leaver.page).not.toHaveURL(/\/r\//);
+      await expect(host.page.getByTestId('people-list').locator('li')).toHaveCount(1);
+      await late.page.getByTestId('room-full').getByRole('button', { name: 'Try again' }).click();
+      await expect(late.page.getByTestId('prompt-editor')).toBeVisible();
     } finally {
-      await closeAll([host, ninth, ...others]);
+      await closeAll([host, leaver, late]);
     }
   });
 });

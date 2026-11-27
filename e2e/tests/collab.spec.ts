@@ -7,6 +7,7 @@ import {
   focusEnd,
   joinRoom,
   person,
+  takeSeats,
   promptText,
   type Person,
 } from './helpers';
@@ -198,21 +199,22 @@ test.describe('shared prompt', () => {
     }
   });
 
-  test('the ninth person sees “room full”', async ({ browser }) => {
+  test('the 17th person sees “room full”', async ({ browser }) => {
     test.setTimeout(90_000);
-    const people: Person[] = [];
+    const host = await person(browser, 'Host');
+    const guest = await person(browser, 'Guest');
+    const late = await person(browser, 'Late');
+    const people = [host, guest, late];
     try {
-      for (let i = 0; i < 9; i++) people.push(await person(browser, `P${i + 1}`));
-      const [host, ...rest] = people;
-      const ninth = rest.pop();
-      if (!host || !ninth) throw new Error('missing people');
       const code = await createRoom(host);
-      for (const p of rest) await joinRoom(p, code);
-      await expect(host.page.getByTestId('people-list').locator('li')).toHaveCount(8);
-      await ninth.page.goto(`/r/${code}`);
-      await expect(ninth.page.getByTestId('room-full')).toBeVisible();
+      await joinRoom(guest, code);
+      await expect(host.page.getByTestId('people-list').locator('li')).toHaveCount(2);
+      // 14 more seats: 16 people in the room
+      await takeSeats(code, 14);
+      await late.page.goto(`/r/${code}`);
+      await expect(late.page.getByTestId('room-full')).toBeVisible();
       await host.page.waitForTimeout(500);
-      await expect(host.page.getByTestId('people-list').locator('li')).toHaveCount(8);
+      await expect(host.page.getByTestId('people-list').locator('li')).toHaveCount(2);
     } finally {
       await closeAll(people);
     }
