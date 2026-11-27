@@ -6,6 +6,7 @@ import {
   exportFileName,
   exportJson,
   exportMarkdown,
+  exportModel,
   initRoom,
   isMarkedDeleted,
   isMarkedRemoved,
@@ -323,6 +324,35 @@ describe('export of a room with sessions', () => {
     const one = exportMarkdown({ room: roomDoc, sessions: [{ name: 'Code', doc: code }] }, options);
     expect(one).toContain('1 session · 2 turns');
     expect(one).not.toContain('## Design');
+  });
+});
+
+describe('export model (what a PDF draws)', () => {
+  it('names resolved, turns labelled, context per session, authors hidden on request', () => {
+    const roomDoc = room();
+    const code = new Y.Doc();
+    turn(code, 't1', 'Write the demo script', 'Step 1: open the app.', {
+      spans: [{ from: 0, to: 9, uid: 'aarav' }],
+    });
+    const options = { includeContext: true, includeAuthors: true, code: 'K7QM2X', exportedAt: AT };
+    const model = exportModel({ room: roomDoc, sessions: [{ name: 'Code', doc: code }] }, options);
+    expect(model).toMatchObject({ roomName: 'Hackathon pitch', code: 'K7Q-M2X' });
+    expect(model.context.map((c) => c.title)).toEqual(['judging-criteria.txt', 'Old pitch draft']);
+    expect(model.sessions[0]?.turns[0]).toMatchObject({
+      label: 'T1',
+      sentBy: 'Meera',
+      authors: ['Aarav'],
+      model: 'GPT-4o mini',
+      context: ['judging-criteria.txt (Meera)'],
+      comparison: false,
+    });
+    const anon = exportModel(
+      { room: roomDoc, sessions: [{ name: 'Code', doc: code }] },
+      { ...options, includeAuthors: false, includeContext: false },
+    );
+    expect(anon.sessions[0]?.turns[0]?.sentBy).toBe('Person 1');
+    expect(anon.context).toEqual([]);
+    expect(anon.instructions).toBe('');
   });
 });
 

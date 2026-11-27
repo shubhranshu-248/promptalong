@@ -296,6 +296,93 @@ export function exportJson(input: Y.Doc | ExportSource, options: ExportOptions):
   return `${JSON.stringify(record, null, 2)}\n`;
 }
 
+/** An export as data: what a PDF or a printed page draws. Names are resolved already. */
+export interface ExportModelTurn {
+  label: string;
+  sentBy: string;
+  authors: string[];
+  prompt: string;
+  answer: string;
+  model: string;
+  status: string | null;
+  /** the instructions and context titles the turn was sent with (when context is included) */
+  instructions: string;
+  context: string[];
+  /** a second model's answer to the turn before (shown next to it) */
+  comparison: boolean;
+}
+
+export interface ExportModelItem {
+  title: string;
+  owner: string;
+  kind: string;
+  included: boolean;
+  text: string;
+}
+
+export interface ExportModelSession {
+  name: string | null;
+  instructions: string;
+  context: ExportModelItem[];
+  turns: ExportModelTurn[];
+}
+
+export interface ExportModel {
+  roomName: string;
+  code: string;
+  exportedAt: number;
+  instructions: string;
+  context: ExportModelItem[];
+  sessions: ExportModelSession[];
+  includeContext: boolean;
+}
+
+export function exportModel(input: Y.Doc | ExportSource, options: ExportOptions): ExportModel {
+  const { room, sessions } = sourceOf(input);
+  const name = namer(room, options.includeAuthors);
+  const items = (list: ReturnType<typeof listContextWithText>): ExportModelItem[] =>
+    options.includeContext
+      ? list.map((i) => ({
+          title: i.title,
+          owner: name(i.ownerUid),
+          kind: i.kind,
+          included: i.included,
+          text: i.text,
+        }))
+      : [];
+  const plain = sessions.length === 1 && sessions[0]?.name === null;
+  return {
+    roomName: readSettings(room)?.name ?? 'Untitled room',
+    code: formatRoomCode(options.code),
+    exportedAt: options.exportedAt,
+    instructions: options.includeContext ? readSystemLine(room) : '',
+    context: plain ? [] : items(listContextWithText(room)),
+    includeContext: options.includeContext,
+    sessions: sessions.map((s) => {
+      const labels = turnLabels(s.doc);
+      return {
+        name: s.name,
+        instructions: options.includeContext && s.doc !== room ? readSystemLine(s.doc) : '',
+        context: plain ? items(plainItems(room, s.doc)) : items(listContextWithText(s.doc)),
+        turns: conversation(s.doc).map((t) => ({
+          label: labels.get(t.id) ?? '',
+          sentBy: name(t.sentBy),
+          authors: promptAuthors(t).map(name),
+          prompt: t.prompt.text,
+          answer: t.answer,
+          model: t.provider.label,
+          status: statusLine(t, name),
+          instructions: options.includeContext ? t.systemLine : '',
+          context: options.includeContext
+            ? t.context.map((c) => `${c.title} (${name(c.ownerUid)})`)
+            : [],
+          comparison: t.compareOf !== undefined,
+        })),
+      };
+    }),
+  };
+}
+
 /** A file name for the download: room name and date. */
 export function exportFileName(roomName: string, at: number, ext: string): string {
   const slug = (text: string) =>
