@@ -5,7 +5,7 @@ test('landing page loads with its main actions', async ({ page }) => {
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto('/');
   await expect(page.getByRole('heading', { level: 1 })).toContainText('Everyone prompts.');
-  await expect(page.getByRole('link', { name: 'Start a room' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Start a room' }).first()).toBeVisible();
   await expect(page.getByRole('link', { name: 'Try the live demo' })).toBeVisible();
   expect(errors).toEqual([]);
 });

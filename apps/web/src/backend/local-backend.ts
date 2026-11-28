@@ -1,9 +1,17 @@
 import type { Transport } from '@promptalong/core';
 import { LocalOnlyTransport } from '../realtime/local-transport';
 import { getPid } from '../room/identity';
-import type { ActionResult, JoinResult, RoomBackend, RoomInfo, TouchResult } from './types';
+import type {
+  ActionResult,
+  JoinResult,
+  RoomBackend,
+  RoomInfo,
+  SessionResult,
+  SessionsResult,
+  TouchResult,
+} from './types';
 
-const NO_SERVER: ActionResult = { ok: false, reason: 'unavailable' };
+const NO_SERVER = { ok: false, reason: 'unavailable' } as const;
 
 /** No realtime configured: every room lives on this device only (ADR-008). */
 export class LocalBackend implements RoomBackend {
@@ -57,8 +65,41 @@ export class LocalBackend implements RoomBackend {
     return new LocalOnlyTransport();
   }
 
+  // a room on this device has one session, "General", made by the page itself
+  listSessions(): Promise<SessionsResult> {
+    return Promise.resolve(NO_SERVER);
+  }
+
+  createSession(): Promise<SessionResult> {
+    return Promise.resolve(NO_SERVER);
+  }
+
+  updateSession(): Promise<SessionResult> {
+    return Promise.resolve(NO_SERVER);
+  }
+
+  deleteSession(): Promise<ActionResult> {
+    return Promise.resolve(NO_SERVER);
+  }
+
+  loadSessionSnapshot(): Promise<Uint8Array | null> {
+    return Promise.resolve(null);
+  }
+
+  saveSessionSnapshot(): Promise<ActionResult> {
+    return Promise.resolve({ ok: true });
+  }
+
+  saveSessionOnLeave(): void {
+    // nothing to save anywhere else
+  }
+
+  sessionTransport(): Transport {
+    return new LocalOnlyTransport();
+  }
+
   private info(code: string, name: string): RoomInfo {
-    return { id: code, code, name, hostUid: '', locked: false };
+    return { id: code, code, name, hostUid: '', locked: false, sessionsRev: 0 };
   }
 
   private open(code: string, name: string): JoinResult {

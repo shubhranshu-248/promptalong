@@ -8,6 +8,7 @@ import {
   joinRoom,
   person,
   promptText,
+  takeSeats,
   type Person,
 } from './helpers';
 
@@ -54,7 +55,9 @@ test.describe('room access', () => {
     try {
       const code = await createRoom(aarav);
       await joinRoom(meera, code);
-      await expect(aarav.page.getByTestId('room-lock')).toHaveText('Room lockOpen');
+      await expect(aarav.page.getByTestId('room-lock')).toContainText(
+        'Open to anyone with the code',
+      );
       // only the host has the Lock button
       await expect(meera.page.getByTestId('lock-button')).toHaveCount(0);
 
@@ -62,7 +65,9 @@ test.describe('room access', () => {
       await expect(aarav.page.getByTestId('access-notice')).toContainText('Room locked');
       await expect(aarav.page.getByTestId('lock-button')).toHaveText('Unlock');
       await expect(meera.page.getByTestId('locked-chip')).toBeVisible(); // everyone sees it at once
-      await expect(meera.page.getByTestId('room-lock')).toHaveText('Room lockLocked');
+      await expect(meera.page.getByTestId('room-lock')).toContainText(
+        'Locked: no one new can join',
+      );
 
       await kabir.page.goto(`/r/${code}`);
       const locked = kabir.page.getByTestId('room-locked');
@@ -200,33 +205,27 @@ test.describe('room access', () => {
     }
   });
 
-  test('a seat is freed when someone leaves: the ninth person gets in after that', async ({
+  test('a seat is freed when someone leaves: the 17th person gets in after that', async ({
     browser,
   }) => {
     const host = await person(browser, 'Host');
-    const others: Person[] = [];
-    const ninth = await person(browser, 'Ninth');
+    const leaver = await person(browser, 'Leaver');
+    const late = await person(browser, 'Late');
     try {
       const code = await createRoom(host);
-      for (let i = 2; i <= 8; i++) {
-        const p = await person(browser, `P${String(i)}`);
-        others.push(p);
-        await joinRoom(p, code);
-      }
-      await ninth.page.goto(`/r/${code}`);
-      await expect(ninth.page.getByTestId('room-full')).toBeVisible();
+      await joinRoom(leaver, code);
+      await takeSeats(code, 14); // 16 people
+      await late.page.goto(`/r/${code}`);
+      await expect(late.page.getByTestId('room-full')).toBeVisible();
       // leaving through the menu frees the seat at once; a closed tab frees it after 90 seconds
-      const leaver = others[others.length - 1];
-      if (leaver) {
-        await leaver.page.getByRole('button', { name: 'Room menu' }).click();
-        await leaver.page.getByRole('menuitem', { name: 'Leave room' }).click();
-        await expect(leaver.page).not.toHaveURL(/\/r\//);
-      }
-      await expect(host.page.getByTestId('people-list').locator('li')).toHaveCount(7);
-      await ninth.page.getByTestId('room-full').getByRole('button', { name: 'Try again' }).click();
-      await expect(ninth.page.getByTestId('prompt-editor')).toBeVisible();
+      await leaver.page.getByRole('button', { name: 'Room menu' }).click();
+      await leaver.page.getByRole('menuitem', { name: 'Leave room' }).click();
+      await expect(leaver.page).not.toHaveURL(/\/r\//);
+      await expect(host.page.getByTestId('people-list').locator('li')).toHaveCount(1);
+      await late.page.getByTestId('room-full').getByRole('button', { name: 'Try again' }).click();
+      await expect(late.page.getByTestId('prompt-editor')).toBeVisible();
     } finally {
-      await closeAll([host, ninth, ...others]);
+      await closeAll([host, leaver, late]);
     }
   });
 });
@@ -242,6 +241,7 @@ test.describe('export', () => {
       const code = await createRoom(aarav);
       await joinRoom(meera, code);
       // context from Meera, a prompt written by both
+      await meera.page.getByTestId('context-button').click();
       await meera.page
         .getByTestId('context-panel')
         .getByRole('button', { name: 'Add note' })
@@ -264,10 +264,20 @@ test.describe('export', () => {
       await openRoomMenu(meera);
       await meera.page.getByRole('menuitem', { name: 'Export' }).click();
       const dialog = meera.page.getByRole('dialog', { name: 'Export conversation' });
-      await expect(dialog.getByTestId('export-branch')).toHaveValue('main');
       await expect(dialog.getByTestId('export-preview')).toContainText('## Turn 1 - sent by Aarav');
       expect(await axe(meera.page)).toEqual([]);
 
+      // PDF is the first choice: a real PDF, made in the browser
+      const [pdf] = await Promise.all([
+        meera.page.waitForEvent('download'),
+        dialog.getByTestId('export-download').click(),
+      ]);
+      expect(pdf.suggestedFilename()).toMatch(/^hackathon-pitch-\d{4}-\d{2}-\d{2}\.pdf$/u);
+      const bytes = await readFile(await pdf.path());
+      expect(bytes.subarray(0, 5).toString('latin1')).toBe('%PDF-');
+      expect(bytes.length).toBeGreaterThan(5000); // fonts are embedded
+
+      await dialog.getByText('Markdown', { exact: true }).click();
       const [md] = await Promise.all([
         meera.page.waitForEvent('download'),
         dialog.getByTestId('export-download').click(),
@@ -275,9 +285,7 @@ test.describe('export', () => {
       expect(md.suggestedFilename()).toMatch(/^hackathon-pitch-\d{4}-\d{2}-\d{2}\.md$/u);
       const markdown = await readFile(await md.path(), 'utf8');
       expect(markdown).toContain('# Hackathon pitch');
-      expect(markdown).toContain(
-        `Room ${code.slice(0, 3)}-${code.slice(3)} · branch main · 1 turn`,
-      );
+      expect(markdown).toContain(`Room ${code.slice(0, 3)}-${code.slice(3)} · 1 turn`);
       expect(markdown).toContain('**Prompt** (Aarav, Meera)');
       expect(markdown).toContain('> /short Make it 2 minutes');
       expect(markdown).toContain('Context: Survey numbers (Meera)');

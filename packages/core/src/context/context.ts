@@ -3,11 +3,13 @@ import * as Y from 'yjs';
 /**
  * Context items (U3, ADR-005): notes, pasted snippets and text files that people attach to the
  * room. Every item is its own map, so including or excluding one never rewrites its text.
- * Text only, UTF-8, at most 200 KB per item and 20 items per room.
+ * Text only, UTF-8, at most 1 MB per item, 40 items and 6 MB in all per room (the whole room
+ * document must stay under the 8 MB the server keeps; realtime splits big changes into parts).
  */
 export const CONTEXT_FIELD = 'context';
-export const CONTEXT_MAX_ITEMS = 20;
-export const CONTEXT_MAX_BYTES = 200 * 1024;
+export const CONTEXT_MAX_ITEMS = 40;
+export const CONTEXT_MAX_BYTES = 1024 * 1024;
+export const CONTEXT_ROOM_MAX_BYTES = 6 * 1024 * 1024;
 export const CONTEXT_TITLE_MAX = 80;
 export const SYSTEM_LINE_MAX = 2000;
 
@@ -40,7 +42,7 @@ export interface NewContextItem {
 
 export type AddContextResult =
   | { ok: true; item: ContextItemView }
-  | { ok: false; reason: 'empty' | 'too-large' | 'room-full' | 'exists' };
+  | { ok: false; reason: 'empty' | 'too-large' | 'room-full' | 'room-size' | 'exists' };
 
 const KINDS = new Set<string>(['note', 'snippet', 'file']);
 const encoder = new TextEncoder();
@@ -124,11 +126,16 @@ export function listContextWithText(doc: Y.Doc): (ContextItemView & { text: stri
   return readAll(doc);
 }
 
+/** Bytes of text the room's context items hold together. */
+export function roomBytes(items: readonly ContextItemView[]): number {
+  return items.reduce((sum, i) => sum + i.bytes, 0);
+}
+
 export function contextText(doc: Y.Doc, id: string): string | null {
   return readItem(id, contextMap(doc).get(id))?.text ?? null;
 }
 
-/** Adds an item, included by default. Refused when empty, over 200 KB or the room has 20. */
+/** Adds an item, included by default. Refused when empty, over 1 MB, the room has 40, or over 6 MB in all. */
 export function addContextItem(doc: Y.Doc, input: NewContextItem): AddContextResult {
   const text = cleanContextText(input.text);
   if (text.trim().length === 0) return { ok: false, reason: 'empty' };
@@ -136,7 +143,11 @@ export function addContextItem(doc: Y.Doc, input: NewContextItem): AddContextRes
   if (bytes > CONTEXT_MAX_BYTES) return { ok: false, reason: 'too-large' };
   const map = contextMap(doc);
   if (map.has(input.id)) return { ok: false, reason: 'exists' };
-  if (listContext(doc).length >= CONTEXT_MAX_ITEMS) return { ok: false, reason: 'room-full' };
+  const existing = listContext(doc);
+  if (existing.length >= CONTEXT_MAX_ITEMS) return { ok: false, reason: 'room-full' };
+  if (roomBytes(existing) + bytes > CONTEXT_ROOM_MAX_BYTES) {
+    return { ok: false, reason: 'room-size' };
+  }
   const item = new Y.Map<unknown>();
   item.set('ownerUid', input.ownerUid);
   item.set('kind', input.kind);
@@ -178,6 +189,8 @@ export function updateContextItem(
     if (text.trim().length === 0) return 'empty';
     bytes = utf8Bytes(text);
     if (bytes > CONTEXT_MAX_BYTES) return 'too-large';
+    const others = listContext(doc).filter((i) => i.id !== id);
+    if (roomBytes(others) + bytes > CONTEXT_ROOM_MAX_BYTES) return 'too-large';
   }
   doc.transact(() => {
     let changed = false;

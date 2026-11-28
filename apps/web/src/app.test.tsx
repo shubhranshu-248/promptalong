@@ -14,7 +14,8 @@ describe('landing page', () => {
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(
       'Everyone prompts.One answer.',
     );
-    expect(screen.getByRole('link', { name: 'Start a room' })).toHaveAttribute('href', '/new');
+    for (const link of screen.getAllByRole('link', { name: 'Start a room' }))
+      expect(link).toHaveAttribute('href', '/new');
     expect(screen.getByRole('link', { name: 'Try the live demo' })).toHaveAttribute(
       'href',
       '/demo',
@@ -22,10 +23,25 @@ describe('landing page', () => {
     expect(screen.getByRole('link', { name: 'Join with code' })).toBeInTheDocument();
   });
 
-  it('lists the four differences and three steps', () => {
+  it('lists the four differences, three use cases and a demo CTA', () => {
     renderAt('/');
     expect(screen.getByRole('region', { name: 'What makes it different' })).toBeInTheDocument();
-    expect(screen.getAllByRole('heading', { level: 2 })).toHaveLength(7);
+    expect(screen.getByRole('region', { name: 'Who it is for' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'See it in action' })).toBeInTheDocument();
+    expect(screen.getAllByRole('heading', { level: 2 })).toHaveLength(8);
+    expect(screen.queryByText(/branch/iu)).toBeNull();
+  });
+
+  it('the home page keeps the credit line on screen; other pages have it in the footer', async () => {
+    renderAt('/');
+    const pinned = screen.getByTestId('made-by-pinned');
+    expect(pinned).toHaveTextContent('Made with by Shubh and Sidak');
+    // the heart takes the text colour (black on light, white on dark)
+    expect(pinned).toHaveClass('text-text');
+    expect(pinned.querySelector('path')?.getAttribute('fill')).toBe('currentColor');
+    expect(screen.getAllByRole('img', { name: 'love' })).toHaveLength(1);
+    renderAt('/about');
+    expect((await screen.findAllByTestId('made-by')).length).toBeGreaterThan(0);
   });
 });
 

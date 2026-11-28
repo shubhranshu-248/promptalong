@@ -3,6 +3,7 @@ import { IndexeddbPersistence } from 'y-indexeddb';
 import type { RoomBackend, RoomInfo } from '../backend';
 import { realtimeConfig } from '../realtime';
 import { RoomSession, type CreateOptions, type RoomSnapshot } from './session';
+import type { SessionConn, SessionSnapshot } from './session-conn';
 
 declare global {
   interface Window {
@@ -39,7 +40,8 @@ export function useRoomSession(
       name: initial.current.name,
       transport: backend.transport(room),
       access: { backend, room, slot },
-      persist: (doc) => new IndexeddbPersistence(`promptalong:room:${code}`, doc),
+      persist: (doc, key) => new IndexeddbPersistence(key, doc),
+      remember: sessionStorageOrNone(),
       ...(initial.current.create ? { create: initial.current.create } : {}),
     });
     s.start();
@@ -57,6 +59,33 @@ export function useRoomSession(
   return session;
 }
 
+function sessionStorageOrNone(): {
+  get(k: string): string | null;
+  set(k: string, v: string): void;
+} {
+  return {
+    get: (k) => {
+      try {
+        return sessionStorage.getItem(k);
+      } catch {
+        return null;
+      }
+    },
+    set: (k, v) => {
+      try {
+        sessionStorage.setItem(k, v);
+      } catch {
+        // storage can be off (private windows): the first session opens instead
+      }
+    },
+  };
+}
+
 export function useRoomSnapshot(session: RoomSession): RoomSnapshot {
   return useSyncExternalStore(session.subscribe, session.getSnapshot);
+}
+
+/** One session's state (every change in any session tells the room's listeners). */
+export function useSessionSnapshot(room: RoomSession, conn: SessionConn): SessionSnapshot {
+  return useSyncExternalStore(room.subscribe, conn.getSnapshot);
 }

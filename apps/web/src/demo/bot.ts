@@ -1,20 +1,18 @@
 import {
-  MAIN_BRANCH,
   addContextItem,
-  createBranch,
-  draftFragment,
   listContext,
   listTurns,
+  promptFragment,
   randomId,
   readLock,
   setContextIncluded,
-  turnsOnPath,
   type ContextKind,
 } from '@promptalong/core';
 import type { Provider } from '@promptalong/providers';
 import * as Y from 'yjs';
 import { sendPrompt } from '../room/send';
-import type { RoomSession } from '../room/session';
+import { LOCAL_SESSION_ID, type RoomSession } from '../room/session';
+import type { SessionConn } from '../room/session-conn';
 
 /** The letters of a text node, without formatting. */
 function plainOf(text: Y.XmlText): string {
@@ -60,17 +58,24 @@ export class DemoBot {
   private cursor: Y.RelativePosition | null = null;
 
   constructor(
-    readonly session: RoomSession,
+    readonly room: RoomSession,
     private readonly timing: BotTiming,
   ) {}
 
+  /** the demo room's one session, as this teammate has it open */
+  get session(): SessionConn {
+    const conn = this.room.conn(LOCAL_SESSION_ID);
+    if (!conn) throw new Error('The demo session is not open yet.');
+    return conn;
+  }
+
   get pid(): string {
-    return this.session.pid;
+    return this.room.pid;
   }
 
   /** The text node of the prompt's first paragraph (the one shared text node, see initRoom). */
   private textNode(): Y.XmlText | null {
-    const paragraph = draftFragment(this.session.doc, MAIN_BRANCH).get(0);
+    const paragraph = promptFragment(this.session.doc).get(0);
     if (!(paragraph instanceof Y.XmlElement)) return null;
     const text = paragraph.get(0);
     return text instanceof Y.XmlText ? text : null;
@@ -102,7 +107,7 @@ export class DemoBot {
 
   hideCursor(): void {
     this.session.awareness.setLocalStateField('cursor', null);
-    this.session.setActivity('idle');
+    this.room.setActivity('idle');
   }
 
   /** Types `words` at `where`, a letter (or a word) at a time, marked as this person's text. */
@@ -120,7 +125,7 @@ export class DemoBot {
       });
       this.cursor = Y.createRelativePositionFromTypeIndex(text, at + piece.length, -1);
       this.showCursor(text, at + piece.length);
-      this.session.setActivity('typing');
+      this.room.setActivity('typing');
       // a little uneven, like real typing (the same every run)
       const jitter = ((n * 37) % 11) - 5;
       const ms = this.timing.wholeWords
@@ -147,7 +152,7 @@ export class DemoBot {
     const at = plain.lastIndexOf(piece);
     if (at < 0) return;
     this.showCursor(text, at, at + piece.length);
-    this.session.setActivity('selecting');
+    this.room.setActivity('selecting');
   }
 
   addContext(item: { title: string; kind: ContextKind; text: string }): string {
@@ -166,20 +171,6 @@ export class DemoBot {
   exclude(title: string): void {
     const item = listContext(this.session.doc).find((i) => i.title === title);
     if (item) setContextIncluded(this.session.doc, item.id, false, this.pid);
-  }
-
-  /** A branch from the n-th turn on main (1 = the first). */
-  branch(name: string, fromTurn: number): void {
-    const from = turnsOnPath(this.session.doc, MAIN_BRANCH)[fromTurn - 1];
-    if (!from) return;
-    createBranch(this.session.doc, {
-      id: randomId(),
-      name,
-      fromTurnId: from.id,
-      sourceBranch: MAIN_BRANCH,
-      by: this.pid,
-      at: Date.now(),
-    });
   }
 
   /**

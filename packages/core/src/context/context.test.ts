@@ -3,6 +3,7 @@ import * as Y from 'yjs';
 import {
   CONTEXT_MAX_BYTES,
   CONTEXT_MAX_ITEMS,
+  CONTEXT_ROOM_MAX_BYTES,
   MAIN_BRANCH,
   MemoryHub,
   RoomSync,
@@ -10,22 +11,22 @@ import {
   addContextItem,
   addTurn,
   answerReserve,
-  applyFork,
   assemble,
   assembleRoom,
   contextText,
-  createBranch,
-  draftFragment,
-  forkPayload,
   initRoom,
+  promptFragment,
   listContext,
   listTurns,
   messageOverhead,
   promptBudget,
   readSystemLine,
   removeContextItem,
+  roomBytes,
   setContextIncluded,
   setSystemLine,
+  setRoomItemIncluded,
+  isRoomItemIncluded,
   sha256Hex,
   tipOf,
   tokenBudget,
@@ -62,14 +63,14 @@ function add(doc: Y.Doc, title: string, text: string, by = 'aarav', kind: Contex
   });
 }
 
-function sent(doc: Y.Doc, text: string, answer: string, branchId = MAIN_BRANCH): string {
+function sent(doc: Y.Doc, text: string, answer: string): string {
   n += 1;
   const id = `t${String(n)}`;
   doc.transact(() => {
     const a = addTurn(doc, {
       id,
-      branchId,
-      parentId: tipOf(doc, branchId),
+      branchId: MAIN_BRANCH,
+      parentId: tipOf(doc),
       createdAt: 200 + n,
       sentBy: 'aarav',
       senderName: 'Aarav',
@@ -105,14 +106,14 @@ describe('context items', () => {
     expect(items[0]?.toggledBy).toBeNull();
   });
 
-  it('refuses empty text, more than 200 KB and a 21st item', () => {
+  it('refuses empty text, more than 1 MB and a 41st item', () => {
     const doc = room();
     expect(add(doc, 'empty', '  \n ')).toEqual({ ok: false, reason: 'empty' });
     expect(add(doc, 'big', 'a'.repeat(CONTEXT_MAX_BYTES + 1))).toEqual({
       ok: false,
       reason: 'too-large',
     });
-    // 200 KB is measured in UTF-8 bytes, not characters
+    // 1 MB is measured in UTF-8 bytes, not characters
     expect(add(doc, 'hindi', 'न'.repeat(Math.floor(CONTEXT_MAX_BYTES / 3) + 1))).toEqual({
       ok: false,
       reason: 'too-large',
@@ -122,6 +123,21 @@ describe('context items', () => {
       expect(add(doc, `n${String(i)}`, 'x').ok).toBe(true);
     expect(add(doc, 'one too many', 'x')).toEqual({ ok: false, reason: 'room-full' });
     expect(listContext(doc)).toHaveLength(CONTEXT_MAX_ITEMS);
+  });
+
+  it('keeps the room under 6 MB of context in all', () => {
+    const doc = room();
+    const full = Math.floor(CONTEXT_ROOM_MAX_BYTES / CONTEXT_MAX_BYTES);
+    for (let i = 0; i < full; i++)
+      expect(add(doc, `big${String(i)}`, 'a'.repeat(CONTEXT_MAX_BYTES)).ok).toBe(true);
+    expect(roomBytes(listContext(doc))).toBe(full * CONTEXT_MAX_BYTES);
+    expect(add(doc, 'one more', 'a'.repeat(CONTEXT_MAX_BYTES))).toEqual({
+      ok: false,
+      reason: 'room-size',
+    });
+    const first = listContext(doc)[0]?.id ?? '';
+    expect(updateContextItem(doc, first, { text: 'small now' })).toBe('ok');
+    expect(add(doc, 'fits again', 'a'.repeat(CONTEXT_MAX_BYTES - 100)).ok).toBe(true);
   });
 
   it('excluding records who did it and never touches the text', () => {
@@ -213,9 +229,7 @@ describe('assembly', () => {
     add(doc, 'Survey numbers', '61 of 80 students lost something.', 'ishita-who-left');
     if (old.ok) setContextIncluded(doc, old.item.id, false, 'meera');
     sent(doc, 'Write a 2 minute pitch', 'Opening (20 s).');
-    writeFragment(draftFragment(doc, MAIN_BRANCH), [
-      { text: '  Now three slide titles  ', spans: [] },
-    ]);
+    writeFragment(promptFragment(doc), [{ text: '  Now three slide titles  ', spans: [] }]);
 
     const a = assembleRoom(doc);
     expect(a.messages).toEqual([
@@ -249,32 +263,10 @@ describe('assembly', () => {
     const r = add(doc, 'Notes', 'private for now');
     if (r.ok) setContextIncluded(doc, r.item.id, false, 'aarav');
     sent(doc, 'first', 'answer one');
-    expect(assembleRoom(doc, MAIN_BRANCH, { prompt: 'second' }).messages).toEqual([
+    expect(assembleRoom(doc, { prompt: 'second' }).messages).toEqual([
       { role: 'user', content: 'first' },
       { role: 'assistant', content: 'answer one' },
       { role: 'user', content: 'second' },
-    ]);
-  });
-
-  it('a branch sends its own history and draft with the same context', () => {
-    const doc = room();
-    add(doc, 'Notes', 'shared by every branch');
-    const t1 = sent(doc, 'first', 'answer one');
-    sent(doc, 'second', 'answer two');
-    createBranch(doc, {
-      id: 'b1',
-      name: 'shorter',
-      fromTurnId: t1,
-      sourceBranch: MAIN_BRANCH,
-      by: 'meera',
-      at: 500,
-    });
-    const a = assembleRoom(doc, 'b1');
-    expect(a.messages.map((m) => m.content)).toEqual([
-      '[context: Notes · Aarav]\nshared by every branch',
-      'first',
-      'answer one',
-      'second', // the branch draft starts as the next prompt (edit and retry)
     ]);
   });
 
@@ -354,7 +346,7 @@ describe('Send with context', () => {
     add(a.doc, 'judging-criteria.txt', '1. Real user problem', 'meera');
     const off = add(a.doc, 'Old draft', 'not sent', 'aarav');
     if (off.ok) setContextIncluded(a.doc, off.item.id, false, 'meera');
-    writeFragment(draftFragment(a.doc, MAIN_BRANCH), [{ text: 'Make it 2 minutes', spans: [] }]);
+    writeFragment(promptFragment(a.doc), [{ text: 'Make it 2 minutes', spans: [] }]);
     await until(() => listContext(b.doc).length === 2);
 
     const build: SendRequest['buildBody'] = (messages) =>
@@ -404,54 +396,14 @@ describe('Send with context', () => {
   });
 });
 
-describe('fork with context', () => {
-  it('copies the items (included or not), the room line and each turn’s context records', () => {
-    const doc = room();
-    setSystemLine(doc, 'Be brief.', 'aarav');
-    const one = add(doc, 'judging-criteria.txt', '1. Real user problem', 'meera');
-    const two = add(doc, 'Old draft', 'kept but excluded', 'aarav');
-    if (!one.ok || !two.ok) throw new Error('not added');
-    setContextIncluded(doc, two.item.id, false, 'meera');
-    const t1 = sent(doc, 'first', 'answer one');
-    doc
-      .getMap<Y.Map<unknown>>('turns')
-      .get(t1)
-      ?.set('context', [
-        { itemId: one.item.id, title: 'judging-criteria.txt', ownerUid: 'meera', tokens: 9 },
-      ]);
-
-    const payload = forkPayload(doc, {
-      branchId: MAIN_BRANCH,
-      uptoTurnId: t1,
-      fromCode: 'K7QM2X',
-      names: (pid) => ({ name: pid === 'meera' ? 'Meera' : 'Aarav', slot: 1 }),
-    });
-    if (!payload) throw new Error('no payload');
-    expect(Object.keys(payload.authors).sort()).toEqual(['aarav', 'meera']);
-
-    const fresh = new Y.Doc();
-    initRoom(fresh, { name: 'copy', sendPolicy: 'everyone', hostPid: 'kabir', createdAt: 9 });
-    applyFork(fresh, structuredClone(payload));
-    expect(listContext(fresh).map((i) => [i.title, i.ownerUid, i.included, i.toggledBy])).toEqual([
-      ['judging-criteria.txt', 'meera', true, null],
-      ['Old draft', 'aarav', false, 'meera'],
-    ]);
-    expect(contextText(fresh, two.item.id)).toBe('kept but excluded');
-    expect(readSystemLine(fresh)).toBe('Be brief.');
-    expect(listTurns(fresh)[0]?.context[0]?.title).toBe('judging-criteria.txt');
-    // owners are named through the frozen authors of the fork
-    expect(assembleRoom(fresh, MAIN_BRANCH, { prompt: 'next' }).messages[0]?.content).toBe(
-      'Be brief.\n\n[context: judging-criteria.txt · Meera]\n1. Real user problem',
-    );
-  });
-});
-
 describe('token budget', () => {
-  it('keeps room for the answer: at most 1,024 tokens or a quarter of a small window', () => {
-    expect(answerReserve(8192)).toBe(1024);
-    expect(promptBudget(8192)).toBe(7168);
+  it('keeps room for the answer: at most 8,192 tokens or a quarter of a smaller window', () => {
+    expect(answerReserve(8192)).toBe(2048);
+    expect(promptBudget(8192)).toBe(6144);
     expect(answerReserve(2048)).toBe(512);
-    expect(promptBudget(128_000)).toBe(126_976);
+    expect(answerReserve(128_000)).toBe(8192);
+    expect(promptBudget(128_000)).toBe(119_808);
+    expect(promptBudget(1_048_576)).toBe(1_040_384);
     expect(messageOverhead(0)).toBe(0);
     expect(messageOverhead(3)).toBe(15);
   });
@@ -467,7 +419,7 @@ describe('token budget', () => {
       ],
     });
     expect(view.used).toBe(904 + 300 + 150 + 30 + 19);
-    expect(view.limit).toBe(7168);
+    expect(view.limit).toBe(6144);
     expect(view.over).toBe(0);
     expect(view.owners).toEqual([
       { uid: 'meera', tokens: 584 },
@@ -484,5 +436,41 @@ describe('token budget', () => {
     });
     expect(view.limit).toBe(3072);
     expect(view.over).toBe(3500 + 200 + 11 - 3072);
+  });
+});
+
+describe('a session of a room', () => {
+  it('room instructions and files come first, then the session own; each session switches room files', () => {
+    const roomDoc = room();
+    setSystemLine(roomDoc, 'You are helping a team prepare a hackathon pitch.', 'aarav');
+    const criteria = add(roomDoc, 'judging-criteria.txt', 'Problem 30%, demo 25%', 'meera', 'file');
+    const a = new Y.Doc();
+    const b = new Y.Doc();
+    setSystemLine(a, 'This session writes the 2-minute script.', 'aarav');
+    add(a, 'Script notes', 'Open with Ishita', 'aarav');
+
+    const inA = assembleRoom(a, { room: roomDoc, prompt: 'Draft it' });
+    expect(inA.messages).toEqual([
+      {
+        role: 'system',
+        content:
+          'You are helping a team prepare a hackathon pitch.\n\nThis session writes the 2-minute script.\n\n' +
+          '[context: judging-criteria.txt · Meera]\nProblem 30%, demo 25%\n\n' +
+          '[context: Script notes · Aarav]\nOpen with Ishita',
+      },
+      { role: 'user', content: 'Draft it' },
+    ]);
+
+    // session B switches the room file off; session A still sends it
+    const id = criteria.ok ? criteria.item.id : '';
+    setRoomItemIncluded(b, id, false);
+    expect(isRoomItemIncluded(b, id)).toBe(false);
+    expect(assembleRoom(b, { room: roomDoc, prompt: 'x' }).items).toEqual([]);
+    expect(assembleRoom(a, { room: roomDoc, prompt: 'x' }).items.map((i) => i.title)).toEqual([
+      'judging-criteria.txt',
+      'Script notes',
+    ]);
+    setRoomItemIncluded(b, id, true);
+    expect(assembleRoom(b, { room: roomDoc, prompt: 'x' }).items).toHaveLength(1);
   });
 });

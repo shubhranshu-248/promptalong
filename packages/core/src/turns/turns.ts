@@ -52,6 +52,8 @@ export interface TurnView {
   context: TurnContextRecord[];
   /** the room line that was sent ('' = none) */
   systemLine: string;
+  /** the turn this one answers again with another model, to compare (same prompt, same history) */
+  compareOf?: string;
   status: TurnStatus;
   answer: string;
   usage?: { input: number; output: number };
@@ -139,7 +141,7 @@ export function readTurn(id: string, turn: Y.Map<unknown>): TurnView | null {
     createdAt,
     sentBy,
     senderName: str(turn.get('senderName'), 24) ?? '',
-    prompt: { text: str(prompt.text, 100_000) ?? '', spans: readSpans(prompt.spans) },
+    prompt: { text: str(prompt.text, 1_000_000) ?? '', spans: readSpans(prompt.spans) },
     provider: {
       kind: str(provider.kind, 16) ?? 'mock',
       model: str(provider.model, 200) ?? '',
@@ -158,6 +160,8 @@ export function readTurn(id: string, turn: Y.Map<unknown>): TurnView | null {
   const input = num(usage?.input);
   const output = num(usage?.output);
   if (input !== undefined && output !== undefined) view.usage = { input, output };
+  const compareOf = str(turn.get('compareOf'), 64);
+  if (compareOf) view.compareOf = compareOf;
   const durationMs = num(turn.get('durationMs'));
   if (durationMs !== undefined) view.durationMs = durationMs;
   const error = turn.get('error') as Record<string, unknown> | undefined;
@@ -202,6 +206,7 @@ export interface NewTurn {
   requestHash: string;
   context?: TurnContextRecord[];
   systemLine?: string;
+  compareOf?: string;
 }
 
 /** Writes a new streaming turn. Returns its answer text. */
@@ -223,6 +228,7 @@ export function addTurn(doc: Y.Doc, turn: NewTurn): Y.Text {
     );
   }
   if (turn.systemLine) map.set('systemLine', turn.systemLine);
+  if (turn.compareOf) map.set('compareOf', turn.compareOf);
   map.set('status', 'streaming');
   map.set('answer', answer);
   turnsMap(doc).set(turn.id, map);

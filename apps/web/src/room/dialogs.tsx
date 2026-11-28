@@ -1,4 +1,5 @@
 import * as Dialog from '@radix-ui/react-dialog';
+import { QrCode } from './QrCode';
 import { formatRoomCode } from '@promptalong/core';
 import { Button, cx } from '@promptalong/ui';
 import { useState, type ReactNode } from 'react';
@@ -95,56 +96,122 @@ export function ShareDialog({
 }) {
   const link = `${window.location.origin}/r/${code}`;
   const [copied, copy] = useCopy();
+  const [big, setBig] = useState(false);
   return (
-    <DialogShell open={open} onOpenChange={onOpenChange} title="Invite your team">
-      <label className="mb-1.5 block text-sm font-semibold" htmlFor="share-link">
-        Room link
-      </label>
-      <div className="flex items-center gap-2">
-        <input
-          id="share-link"
-          readOnly
-          value={link}
-          onFocus={(e) => {
-            e.currentTarget.select();
-          }}
-          className="h-11 min-w-0 flex-1 rounded-md border border-border-strong bg-surface px-3 font-mono text-[13px] text-text"
-        />
-        <Button
-          variant="primary"
-          onClick={() => {
-            copy('link', link);
-          }}
+    <>
+      <DialogShell open={open} onOpenChange={onOpenChange} title="Invite your team">
+        <div className="mb-5 flex items-center gap-4 max-md:flex-col">
+          <QrCode text={link} label={`QR code for ${link}`} size={152} />
+          <div className="text-sm">
+            <p className="font-semibold">Scan to join</p>
+            <p className="mt-1 text-text-muted">
+              Point a phone camera at the code: it opens this room.
+            </p>
+            <Button
+              size="sm"
+              className="mt-3"
+              onClick={() => {
+                setBig(true);
+              }}
+              data-testid="join-screen-open"
+            >
+              Show on a big screen
+            </Button>
+          </div>
+        </div>
+        <label className="mb-1.5 block text-sm font-semibold" htmlFor="share-link">
+          Room link
+        </label>
+        <div className="flex items-center gap-2">
+          <input
+            id="share-link"
+            readOnly
+            value={link}
+            onFocus={(e) => {
+              e.currentTarget.select();
+            }}
+            className="h-11 min-w-0 flex-1 rounded-md border border-border-strong bg-surface px-3 font-mono text-[13px] text-text"
+          />
+          <Button
+            variant="primary"
+            onClick={() => {
+              copy('link', link);
+            }}
+          >
+            {copied === 'link' ? 'Copied' : 'Copy link'}
+          </Button>
+        </div>
+        <p className="mt-5 mb-1.5 text-sm font-semibold">Or share the code</p>
+        <p
+          className="rounded-md bg-surface-2 p-[18px] text-center font-mono text-[28px] leading-none font-semibold tracking-[.12em]"
+          data-testid="share-code"
         >
-          {copied === 'link' ? 'Copied' : 'Copy link'}
-        </Button>
-      </div>
-      <p className="mt-5 mb-1.5 text-sm font-semibold">Or share the code</p>
-      <p
-        className="rounded-md bg-surface-2 p-[18px] text-center font-mono text-[28px] leading-none font-semibold tracking-[.12em]"
-        data-testid="share-code"
-      >
-        {formatRoomCode(code)}
-      </p>
-      <div className="mt-3 flex items-center justify-between text-xs text-text-muted">
-        <span>Up to 8 people · {here} here now</span>
-        <Button
-          size="sm"
-          onClick={() => {
-            copy('code', code);
-          }}
+          {formatRoomCode(code)}
+        </p>
+        <div className="mt-3 flex items-center justify-between text-xs text-text-muted">
+          <span>Up to 16 people · {here} here now</span>
+          <Button
+            size="sm"
+            onClick={() => {
+              copy('code', code);
+            }}
+          >
+            {copied === 'code' ? 'Copied' : 'Copy code'}
+          </Button>
+        </div>
+        <p className="mt-3 text-xs text-text-muted">
+          Anyone with the link or code can join until the host locks the room. Your model key is
+          never shared.
+        </p>
+        <p className="sr-only" aria-live="polite">
+          {copied ? `${copied === 'link' ? 'Link' : 'Code'} copied` : ''}
+        </p>
+      </DialogShell>
+      <JoinScreen open={big} onOpenChange={setBig} code={code} link={link} />
+    </>
+  );
+}
+
+/** The join screen for a projector or a shared screen: a big QR code and the room code. */
+export function JoinScreen({
+  open,
+  onOpenChange,
+  code,
+  link,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  code: string;
+  link: string;
+}) {
+  return (
+    <Dialog.Root open={open} onOpenChange={onOpenChange}>
+      <Dialog.Portal>
+        <Dialog.Content
+          className="fixed inset-0 z-[80] flex flex-col items-center justify-center gap-6 overflow-auto bg-bg p-6 text-center text-text"
+          aria-describedby={undefined}
+          data-testid="join-screen"
         >
-          {copied === 'code' ? 'Copied' : 'Copy code'}
-        </Button>
-      </div>
-      <p className="mt-3 text-xs text-text-muted">
-        Anyone with the link or code can join until the host locks the room. Your model key is never
-        shared.
-      </p>
-      <p className="sr-only" aria-live="polite">
-        {copied ? `${copied === 'link' ? 'Link' : 'Code'} copied` : ''}
-      </p>
-    </DialogShell>
+          <Dialog.Title className="font-display text-[clamp(22px,3.2vw,40px)] font-bold">
+            Join the room
+          </Dialog.Title>
+          <QrCode
+            text={link}
+            label={`QR code for ${link}`}
+            size={Math.min(420, Math.round(Math.min(window.innerWidth, window.innerHeight) * 0.5))}
+          />
+          <p className="font-mono text-[clamp(36px,7vw,88px)] leading-none font-semibold tracking-[.12em]">
+            {formatRoomCode(code)}
+          </p>
+          <p className="text-[clamp(14px,1.6vw,20px)] text-text-muted">
+            Scan the code, or open {window.location.host} and type the code under Join.
+          </p>
+          <Dialog.Close asChild>
+            <Button>Close</Button>
+          </Dialog.Close>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }
 
@@ -170,7 +237,7 @@ export function NameField({
         onChange(e.target.value);
       }}
       className={cx(
-        'h-10 w-full rounded-md border bg-surface px-3 text-base text-text',
+        'h-11 w-full rounded-xl border bg-surface px-3.5 text-base text-text',
         invalid ? 'border-danger' : 'border-border-strong',
       )}
     />

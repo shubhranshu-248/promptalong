@@ -1,5 +1,5 @@
 import type * as Y from 'yjs';
-import { tipOf } from '../branches/branches';
+import { tipOf } from '../history/history';
 import { assembleRoom, draftPrompt } from '../context/assemble';
 import type { Span } from '../provenance/spans';
 import { MAIN_BRANCH, clearPrompt } from '../room/doc';
@@ -44,14 +44,16 @@ export interface SendRequest {
   promptText: string;
   /** author spans of promptText (Retry); a normal Send reads them from the draft */
   spans?: Span[];
-  /** the branch the turn belongs to (default main) */
-  branchId?: string;
   provider: TurnProvider;
   /** builds the exact body from the messages (shown by the panel, posted by Send) */
   buildBody: (messages: { role: 'user' | 'assistant' | 'system'; content: string }[]) => string;
   /** a token count this browser already has for a text (null = not counted yet) */
   tokens?: (text: string) => { tokens: number; exact: boolean } | null;
   stream: (body: string, signal: AbortSignal) => AsyncIterable<StreamChunkLike>;
+  /** the model's window: older turns are shortened to fit, as the context panel shows */
+  contextWindow?: number;
+  /** answer this earlier turn's prompt again with another model, side by side */
+  compareOf?: string;
   /** clear the shared prompt when the turn starts (normal Send) - false for Retry */
   clearPrompt: boolean;
   /** turns a thrown error into something safe to show to everyone */
@@ -63,6 +65,8 @@ export type SendResult =
   | { ok: false; reason: 'busy' | 'lost' | 'empty' | 'not-allowed'; holder?: LockHolder };
 
 export interface CoordinatorOptions {
+  /** the room document when this document is one of its sessions (room context comes first) */
+  room?: () => Y.Doc | null;
   pid: string;
   session: string;
   name: () => string;
@@ -121,6 +125,7 @@ export class StreamCoordinator {
       flushMs: 150,
       checkMs: 1000,
       newId: () => crypto.randomUUID(),
+      room: () => null,
       ...options,
     };
     lockMap(doc).observe(this.onLock);
@@ -173,11 +178,15 @@ export class StreamCoordinator {
     // A normal Send freezes the prompt as it is now, not as it was at the click: letters a
     // co-writer typed during the claim window belong to this turn. Reading, adding the turn and
     // clearing run with no await in between, so nothing can arrive that is cleared but not sent.
-    const branchId = req.branchId ?? MAIN_BRANCH;
-    const fromDraft = req.clearPrompt ? draftPrompt(this.doc, branchId) : null;
+    const fromDraft = req.clearPrompt ? draftPrompt(this.doc) : null;
     const sent = fromDraft?.text ? fromDraft : { text: req.promptText, spans: req.spans ?? [] };
     // The same function the context panel shows: room line, included context, history, prompt.
-    const assembled = assembleRoom(this.doc, branchId, { prompt: sent.text });
+    const assembled = assembleRoom(this.doc, {
+      prompt: sent.text,
+      room: this.o.room(),
+      ...(req.contextWindow !== undefined ? { contextWindow: req.contextWindow } : {}),
+      ...(req.compareOf ? { historyBefore: req.compareOf } : {}),
+    });
     const body = req.buildBody(assembled.messages);
     const context: TurnContextRecord[] = assembled.items.map((item) => {
       const counted = req.tokens?.(item.block) ?? null;
@@ -198,8 +207,8 @@ export class StreamCoordinator {
     this.doc.transact(() => {
       answer = addTurn(this.doc, {
         id: turnId,
-        branchId,
-        parentId: tipOf(this.doc, branchId),
+        branchId: MAIN_BRANCH,
+        parentId: tipOf(this.doc),
         createdAt: started,
         sentBy: this.o.pid,
         senderName: this.o.name(),
@@ -209,9 +218,10 @@ export class StreamCoordinator {
         requestHash: '',
         context,
         systemLine: assembled.systemLine,
+        ...(req.compareOf ? { compareOf: req.compareOf } : {}),
       });
       lockMap(this.doc).set('current', { ...claim, turnId, beat: 1 });
-      if (req.clearPrompt) clearPrompt(this.doc, branchId);
+      if (req.clearPrompt) clearPrompt(this.doc);
     });
     const [requestHash, ...hashes] = await Promise.all([
       sha256Hex(body),

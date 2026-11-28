@@ -1,4 +1,4 @@
-import type { Transport } from '@promptalong/core';
+import { ChunkedTransport, type Transport } from '@promptalong/core';
 import { RelayTransport } from '../realtime/relay-transport';
 import { getPid } from '../room/identity';
 import {
@@ -6,12 +6,16 @@ import {
   KEEPALIVE_MAX_BODY,
   readActionResult,
   readJoinResult,
+  readSessionResult,
+  readSessionsResult,
   readTouchResult,
   toBase64,
   type ActionResult,
   type JoinResult,
   type RoomBackend,
   type RoomInfo,
+  type SessionResult,
+  type SessionsResult,
   type TouchResult,
 } from './types';
 
@@ -82,7 +86,53 @@ export class RelayBackend implements RoomBackend {
   }
 
   transport(room: RoomInfo): Transport {
-    return new RelayTransport(this.wsUrl, room.id, getPid());
+    return new ChunkedTransport(new RelayTransport(this.wsUrl, room.id, getPid()));
+  }
+
+  async listSessions(roomId: string): Promise<SessionsResult> {
+    const res = await this.call('list_sessions', { room: roomId });
+    return res === null ? { ok: false, reason: 'offline' } : readSessionsResult(res);
+  }
+
+  async createSession(roomId: string, name: string, members: string[]): Promise<SessionResult> {
+    const res = await this.call('create_session', { room: roomId, name, members });
+    return res === null ? { ok: false, reason: 'offline' } : readSessionResult(res);
+  }
+
+  async updateSession(
+    sessionId: string,
+    patch: { name?: string; members?: string[] },
+  ): Promise<SessionResult> {
+    const res = await this.call('update_session', {
+      session: sessionId,
+      name: patch.name ?? null,
+      members: patch.members ?? null,
+    });
+    return res === null ? { ok: false, reason: 'offline' } : readSessionResult(res);
+  }
+
+  deleteSession(sessionId: string): Promise<ActionResult> {
+    return this.action('delete_session', { session: sessionId });
+  }
+
+  async loadSessionSnapshot(sessionId: string): Promise<Uint8Array | null> {
+    const res = (await this.call('load_session_snapshot', { session: sessionId })) as {
+      state?: unknown;
+    } | null;
+    return typeof res?.state === 'string' ? fromBase64(res.state) : null;
+  }
+
+  saveSessionSnapshot(sessionId: string, state: Uint8Array): Promise<ActionResult> {
+    return this.action('save_session_snapshot', { session: sessionId, state: toBase64(state) });
+  }
+
+  saveSessionOnLeave(sessionId: string, state: Uint8Array): void {
+    const body = { session: sessionId, state: toBase64(state) };
+    void this.call('save_session_snapshot', body, JSON.stringify(body).length < KEEPALIVE_MAX_BODY);
+  }
+
+  sessionTransport(_room: RoomInfo, sessionId: string): Transport {
+    return new ChunkedTransport(new RelayTransport(this.wsUrl, `session:${sessionId}`, getPid()));
   }
 
   private async action(fn: string, body: Record<string, unknown>): Promise<ActionResult> {

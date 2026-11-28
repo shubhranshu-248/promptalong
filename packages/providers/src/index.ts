@@ -29,7 +29,14 @@ export {
 export { approxTokens, ndjson, sseData, sleep } from './streams';
 export { MockProvider, mockAnswer, mockChunks, type MockOptions } from './mock';
 export { ByokProvider, parseChunk, type ByokOptions } from './byok';
-export { OLLAMA_URL, OllamaProvider, ollamaOriginsHint, type OllamaOptions } from './ollama';
+export {
+  OLLAMA_MAX_CONTEXT,
+  OLLAMA_URL,
+  OllamaProvider,
+  ollamaContextFor,
+  ollamaOriginsHint,
+  type OllamaOptions,
+} from './ollama';
 export { WebLlmProvider, type LoadProgress, type WebLlmEngine, type WebLlmLoader } from './webllm';
 export {
   DEFAULT_CONTEXT_WINDOW,

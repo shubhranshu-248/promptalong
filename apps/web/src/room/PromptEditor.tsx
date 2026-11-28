@@ -5,10 +5,11 @@ import Text from '@tiptap/extension-text';
 import { Placeholder } from '@tiptap/extensions';
 import { EditorContent, useEditor } from '@tiptap/react';
 import { memo, useMemo } from 'react';
-import { draftFragment } from '@promptalong/core';
+import { promptFragment } from '@promptalong/core';
 import { presenceHex } from '@promptalong/ui';
 import { AuthorMark } from './author-mark';
-import { readUser, type RoomSession } from './session';
+import { readUser } from './people';
+import type { SessionConn } from './session-conn';
 import { YjsCollaboration, isRemoteChange } from './yjs-collaboration';
 
 /** A remote person's caret: a line in their colour with their name (colour is never the only cue). */
@@ -48,11 +49,10 @@ function renderSelection(raw: Record<string, unknown>) {
  */
 export const PromptEditor = memo(function PromptEditor({
   session,
-  branchId,
+  placeholder = 'Write the prompt together…',
 }: {
-  session: RoomSession;
-  /** which branch's draft to edit (the room's active branch) */
-  branchId: string;
+  session: SessionConn;
+  placeholder?: string;
 }) {
   const options = useMemo(() => {
     const report = (activity: 'typing' | 'selecting' | 'idle') => {
@@ -67,9 +67,9 @@ export const PromptEditor = memo(function PromptEditor({
         Text,
         HardBreak,
         AuthorMark.configure({ uid: session.pid }),
-        Placeholder.configure({ placeholder: 'Write the prompt together…' }),
+        Placeholder.configure({ placeholder }),
         YjsCollaboration.configure({
-          fragment: draftFragment(session.doc, branchId),
+          fragment: promptFragment(session.doc),
           awareness: session.awareness,
           renderCaret,
           renderSelection,
@@ -101,9 +101,9 @@ export const PromptEditor = memo(function PromptEditor({
       immediatelyRender: true,
       shouldRerenderOnTransaction: false,
     };
-  }, [session, branchId]);
+  }, [session, placeholder]);
 
-  const editor = useEditor(options, [session, branchId]);
+  const editor = useEditor(options, [session, placeholder]);
 
   return <EditorContent editor={editor} />;
 });

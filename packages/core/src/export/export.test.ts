@@ -3,10 +3,10 @@ import {
   MAIN_BRANCH,
   addContextItem,
   addTurn,
-  createBranch,
   exportFileName,
   exportJson,
   exportMarkdown,
+  exportModel,
   initRoom,
   isMarkedDeleted,
   isMarkedRemoved,
@@ -63,17 +63,15 @@ function turn(
   text: string,
   answer: string,
   extra: {
-    branchId?: string;
     status?: string;
     spans?: { from: number; to: number; uid: string }[];
   } = {},
 ): void {
-  const branchId = extra.branchId ?? MAIN_BRANCH;
   doc.transact(() => {
     const a = addTurn(doc, {
       id,
-      branchId,
-      parentId: tipOf(doc, branchId),
+      branchId: MAIN_BRANCH,
+      parentId: tipOf(doc),
       createdAt: AT + Number(id.slice(1)) * 60_000,
       sentBy: 'meera',
       senderName: 'Meera',
@@ -114,7 +112,6 @@ describe('export', () => {
     });
     turn(doc, 't2', 'Now shorter', 'Half as long.', { status: 'stopped' });
     const md = exportMarkdown(doc, {
-      branchId: MAIN_BRANCH,
       includeContext: true,
       includeAuthors: true,
       code: 'K7QM2X',
@@ -124,7 +121,7 @@ describe('export', () => {
       [
         '# Hackathon pitch',
         '',
-        'Room K7Q-M2X · branch main · 2 turns · exported 2026-11-25',
+        'Room K7Q-M2X · 2 turns · exported 2026-11-25',
         '',
         '## Turn 1 - sent by Meera',
         '',
@@ -133,7 +130,7 @@ describe('export', () => {
         '> Write a 2 minute pitch',
         '> for the judges',
         '',
-        'Room line: You are helping a team prepare a pitch.',
+        'Instructions: You are helping a team prepare a pitch.',
         'Context: judging-criteria.txt (Meera)',
         'Model: GPT-4o mini · 1,284 tokens in, 212 out',
         '',
@@ -145,7 +142,7 @@ describe('export', () => {
         '',
         '> Now shorter',
         '',
-        'Room line: You are helping a team prepare a pitch.',
+        'Instructions: You are helping a team prepare a pitch.',
         'Context: judging-criteria.txt (Meera)',
         'Model: GPT-4o mini · 1,284 tokens in, 212 out',
         'Status: stopped',
@@ -171,7 +168,6 @@ describe('export', () => {
     const doc = room();
     turn(doc, 't1', 'Write a pitch', 'Opening.', { spans: [{ from: 0, to: 13, uid: 'aarav' }] });
     const options = {
-      branchId: MAIN_BRANCH,
       includeContext: false,
       includeAuthors: false,
       code: 'K7QM2X',
@@ -190,22 +186,12 @@ describe('export', () => {
     expect(json.turns[0]?.prompt.segments[0]?.author).toBe('Person 2');
   });
 
-  it('JSON: the full record of one branch, with the branch tree', () => {
+  it('JSON: the full record of the conversation', () => {
     const doc = room();
     turn(doc, 't1', 'first', 'answer one', { spans: [{ from: 0, to: 5, uid: 'aarav' }] });
     turn(doc, 't2', 'second', 'answer two');
-    createBranch(doc, {
-      id: 'b1',
-      name: 'shorter',
-      fromTurnId: 't1',
-      sourceBranch: MAIN_BRANCH,
-      by: 'meera',
-      at: AT,
-    });
-    turn(doc, 't3', 'second, but shorter', 'short answer', { branchId: 'b1' });
     const json = JSON.parse(
       exportJson(doc, {
-        branchId: 'b1',
         includeContext: true,
         includeAuthors: true,
         code: 'K7QM2X',
@@ -213,7 +199,6 @@ describe('export', () => {
       }),
     ) as Record<string, unknown> & {
       turns: Record<string, unknown>[];
-      branches: unknown[];
       contextItems: unknown[];
     };
     expect(json).toMatchObject({
@@ -221,12 +206,12 @@ describe('export', () => {
       format: 1,
       exportedAt: '2026-11-25T09:30:00.000Z',
       room: { name: 'Hackathon pitch', code: 'K7QM2X' },
-      branch: 'shorter',
       roomLine: 'You are helping a team prepare a pitch.',
     });
-    expect(json.turns.map((t) => [t.label, t.branch, t.answer])).toEqual([
-      ['T1', 'main', 'answer one'],
-      ['T2b', 'shorter', 'short answer'],
+    expect(json).not.toHaveProperty('branches');
+    expect(json.turns.map((t) => [t.label, t.answer])).toEqual([
+      ['T1', 'answer one'],
+      ['T2', 'answer two'],
     ]);
     expect(json.turns[0]).toMatchObject({
       sentBy: 'Meera',
@@ -237,10 +222,6 @@ describe('export', () => {
       status: 'done',
       usage: { input: 1284, output: 212 },
     });
-    expect(json.branches).toEqual([
-      { name: 'main', from: null, createdBy: null },
-      { name: 'shorter', from: 'T1', createdBy: 'Meera' },
-    ]);
     expect(json.contextItems).toHaveLength(2);
   });
 
@@ -252,7 +233,6 @@ describe('export', () => {
       .set('model', { kind: 'byok', model: 'm', endpoint: 'openai', key: 'sk-secret-123' });
     turn(doc, 't1', 'first', 'answer');
     const options = {
-      branchId: MAIN_BRANCH,
       includeContext: true,
       includeAuthors: true,
       code: 'K7QM2X',
@@ -263,23 +243,116 @@ describe('export', () => {
     expect(Object.keys(JSON.parse(exportJson(doc, options)) as object)).not.toContain('key');
   });
 
-  it('an empty branch and file names', () => {
+  it('an empty room and file names', () => {
     const doc = room();
     const md = exportMarkdown(doc, {
-      branchId: MAIN_BRANCH,
       includeContext: false,
       includeAuthors: true,
       code: 'K7QM2X',
       exportedAt: AT,
     });
     expect(md).toContain('0 turns');
-    expect(md).toContain('Nothing has been sent on this branch yet.');
-    expect(exportFileName('Hackathon pitch!', 'main', AT, 'md')).toBe(
-      'hackathon-pitch-2026-11-25.md',
+    expect(md).toContain('Nothing has been sent here yet.');
+    expect(exportFileName('Hackathon pitch!', AT, 'md')).toBe('hackathon-pitch-2026-11-25.md');
+    expect(exportFileName('  ', AT, 'json')).toBe('room-2026-11-25.json');
+  });
+});
+
+describe('export of a room with sessions', () => {
+  function session(line: string): Y.Doc {
+    const doc = new Y.Doc();
+    setSystemLine(doc, line, 'aarav');
+    return doc;
+  }
+
+  it('the room once, then each session with its own turns and context', () => {
+    const roomDoc = room();
+    const design = session('Focus on the slides.');
+    const code = session('');
+    turn(design, 't1', 'Outline the slides', 'Slide 1: the problem.');
+    turn(code, 't1', 'Write the demo script', 'Step 1: open the app.');
+    turn(code, 't2', 'Shorter', 'Open, type, send.');
+    addContextItem(code, {
+      id: 'k1',
+      ownerUid: 'aarav',
+      kind: 'snippet',
+      title: 'demo.sh',
+      text: 'pnpm dev',
+      createdAt: 9,
+    });
+    const options = { includeContext: true, includeAuthors: true, code: 'K7QM2X', exportedAt: AT };
+    const source = {
+      room: roomDoc,
+      sessions: [
+        { name: 'Design', doc: design },
+        { name: 'Code', doc: code },
+      ],
+    };
+    const md = exportMarkdown(source, options);
+    expect(md).toContain('Room K7Q-M2X · 2 sessions · 3 turns · exported 2026-11-25');
+    expect(md).toContain('Room instructions: You are helping a team prepare a pitch.');
+    expect(md).toContain('## Room context');
+    expect(md).toContain('### judging-criteria.txt (Meera, file)');
+    expect(md.indexOf('## Design')).toBeLessThan(md.indexOf('## Code'));
+    expect(md).toContain('Session instructions: Focus on the slides.');
+    expect(md).toContain('### Turn 2 - sent by Meera');
+    expect(md).toContain('#### demo.sh (Aarav, snippet)');
+    // the room's context is written once, not once per session
+    expect(md.split('judging-criteria.txt (Meera, file)')).toHaveLength(2);
+
+    const json = JSON.parse(exportJson(source, options)) as {
+      format: number;
+      instructions: string;
+      contextItems: unknown[];
+      sessions: {
+        name: string;
+        instructions: string | null;
+        turns: unknown[];
+        contextItems: unknown[];
+      }[];
+    };
+    expect(json.format).toBe(2);
+    expect(json.instructions).toBe('You are helping a team prepare a pitch.');
+    expect(json.contextItems).toHaveLength(2);
+    expect(json.sessions.map((s) => [s.name, s.turns.length, s.contextItems.length])).toEqual([
+      ['Design', 1, 0],
+      ['Code', 2, 1],
+    ]);
+    expect(json.sessions[1]?.instructions).toBeNull();
+
+    // one session alone keeps its name as a heading
+    const one = exportMarkdown({ room: roomDoc, sessions: [{ name: 'Code', doc: code }] }, options);
+    expect(one).toContain('1 session · 2 turns');
+    expect(one).not.toContain('## Design');
+  });
+});
+
+describe('export model (what a PDF draws)', () => {
+  it('names resolved, turns labelled, context per session, authors hidden on request', () => {
+    const roomDoc = room();
+    const code = new Y.Doc();
+    turn(code, 't1', 'Write the demo script', 'Step 1: open the app.', {
+      spans: [{ from: 0, to: 9, uid: 'aarav' }],
+    });
+    const options = { includeContext: true, includeAuthors: true, code: 'K7QM2X', exportedAt: AT };
+    const model = exportModel({ room: roomDoc, sessions: [{ name: 'Code', doc: code }] }, options);
+    expect(model).toMatchObject({ roomName: 'Hackathon pitch', code: 'K7Q-M2X' });
+    expect(model.context.map((c) => c.title)).toEqual(['judging-criteria.txt', 'Old pitch draft']);
+    expect(model.sessions[0]?.turns[0]).toMatchObject({
+      label: 'T1',
+      sentBy: 'Meera',
+      authors: ['Aarav'],
+      model: 'GPT-4o mini',
+      context: ['judging-criteria.txt (Meera)'],
+      comparison: false,
+    });
+    const anon = exportModel(
+      { room: roomDoc, sessions: [{ name: 'Code', doc: code }] },
+      { ...options, includeAuthors: false, includeContext: false },
     );
-    expect(exportFileName('  ', 'Shorter version', AT, 'json')).toBe(
-      'room-shorter-version-2026-11-25.json',
-    );
+    expect(anon.sessions[0]?.turns[0]?.sentBy).toBe('Person 1');
+    expect(anon.context).toEqual([]);
+    expect(anon.instructions).toBe('');
   });
 });
 

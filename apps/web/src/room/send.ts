@@ -8,12 +8,13 @@ import {
 import {
   ProviderError,
   modelLabel,
+  modelLimits,
   scrubSecrets,
   type Provider,
   type RoomModelChoice,
 } from '@promptalong/providers';
 import { providerFor } from '../models/providers';
-import type { RoomSession } from './session';
+import type { SessionConn } from './session-conn';
 
 /** A thrown error, made safe to show to everyone in the room (no key, no header). */
 export function describeError(error: unknown): TurnError {
@@ -40,9 +41,9 @@ export function buildBody(choice: RoomModelChoice, messages: AssembledMessage[])
 }
 
 /**
- * Sends the active branch's shared prompt (or, for Retry, an earlier turn's prompt with its
- * authors) with the room's model. Only
- * this browser calls the model; the answer reaches everyone through the room document.
+ * Sends the room's shared prompt (or, for Retry, an earlier turn's prompt with its authors) with
+ * the room's model. Only this browser calls the model; the answer reaches everyone through the
+ * room document.
  */
 export interface Retry {
   text: string;
@@ -50,21 +51,21 @@ export interface Retry {
 }
 
 export function sendPrompt(
-  session: RoomSession,
+  session: SessionConn,
   retry?: Retry,
   tokens?: (text: string) => { tokens: number; exact: boolean } | null,
   /** the model to call instead of the room's one (the demo's scripted people use a fast demo model in tests) */
   override?: Provider,
+  /** another model than the session's (a comparison), and the turn it compares with */
+  extra?: { choice?: RoomModelChoice; compareOf?: string },
 ): Promise<SendResult> {
   const snap = session.getSnapshot();
-  const choice = snap.model;
+  const choice = extra?.choice ?? snap.model;
   const provider = override ?? providerFor(choice);
-  const branchId = snap.activeBranch;
-  const text = retry?.text ?? promptText(session.doc, branchId).trim();
+  const text = retry?.text ?? promptText(session.doc).trim();
   return session.stream.send({
     promptText: text,
     ...(retry ? { spans: retry.spans } : {}),
-    branchId,
     provider: {
       kind: choice.kind,
       model: choice.model,
@@ -72,6 +73,8 @@ export function sendPrompt(
       ...(choice.endpoint ? { endpoint: choice.endpoint } : {}),
     },
     buildBody: (messages) => buildBody(choice, messages),
+    contextWindow: modelLimits(choice).contextWindow,
+    ...(extra?.compareOf ? { compareOf: extra.compareOf } : {}),
     ...(tokens ? { tokens } : {}),
     stream: (body, signal) => provider.stream(body, signal),
     clearPrompt: retry === undefined,

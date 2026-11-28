@@ -3,7 +3,7 @@
  * answer. Nothing is trimmed silently: over budget, Send is switched off and people decide what to
  * exclude.
  */
-export const ANSWER_RESERVE_MAX = 1024;
+export const ANSWER_RESERVE_MAX = 8192;
 /** Chat formats spend a few tokens per message (role + separators) and a few to start the answer. */
 export const TOKENS_PER_MESSAGE = 4;
 export const TOKENS_REPLY_PRIMING = 3;

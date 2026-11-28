@@ -4,11 +4,12 @@ export {
   ROOM_NAME_MAX,
   cleanRoomName,
   clearPrompt,
-  draftFragment,
   MAIN_BRANCH,
   readRoomModel,
   setRoomModel,
   initRoom,
+  initSession,
+  isSessionReady,
   peopleMap,
   promptFragment,
   promptText,
@@ -24,6 +25,7 @@ export {
   chooseSlot,
   hasPriority,
   isOverCapacity,
+  MAX_SESSION_PEOPLE,
   type PresentPerson,
 } from './slots';
 export {
@@ -38,3 +40,14 @@ export {
   writeHost,
   writeLocked,
 } from './access';
+export {
+  PINS_MAX,
+  PIN_ANSWER_MAX,
+  PIN_PROMPT_MAX,
+  addPin,
+  listPins,
+  pinOf,
+  removePin,
+  type NewPin,
+  type PinView,
+} from './pins';

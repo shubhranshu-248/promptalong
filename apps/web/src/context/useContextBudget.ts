@@ -2,9 +2,9 @@ import {
   assembleRoom,
   contextBlock,
   contextOwnerName,
-  draftFragment,
-  listContextWithText,
+  promptFragment,
   promptBudget,
+  sessionContextItems,
   tokenBudget,
   type Assembled,
   type BudgetView,
@@ -13,6 +13,7 @@ import { approxTokens, modelLimits } from '@promptalong/providers';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useWebLlmState } from '../models/webllm-state';
 import type { RoomSession, RoomSnapshot } from '../room/session';
+import type { SessionConn, SessionSnapshot } from '../room/session-conn';
 import { O200K, engineSpace, knownTokens, tokenStore, useTokenVersion } from './tokens';
 
 const DRAFT_QUIET_MS = 200;
@@ -33,15 +34,19 @@ export interface ContextBudget {
 }
 
 /**
- * The live request and its token budget for the active branch. Recomputed when the context, the
- * history, the room line, the model or the draft prompt changes - never while an answer streams.
+ * The live request and its token budget. Recomputed when the context, the history, the room line,
+ * the model or the draft prompt changes - never while an answer streams.
  */
-export function useContextBudget(session: RoomSession, snap: RoomSnapshot): ContextBudget {
-  const branch = snap.activeBranch;
+export function useContextBudget(
+  room: RoomSession,
+  snap: RoomSnapshot,
+  session: SessionConn,
+  ss: SessionSnapshot,
+): ContextBudget {
   const [draftTick, setDraftTick] = useState(0);
   const [stale, setStale] = useState(false);
   useEffect(() => {
-    const fragment = draftFragment(session.doc, branch);
+    const fragment = promptFragment(session.doc);
     let quiet: ReturnType<typeof setTimeout> | null = null;
     let latest: ReturnType<typeof setTimeout> | null = null;
     const recount = () => {
@@ -66,39 +71,41 @@ export function useContextBudget(session: RoomSession, snap: RoomSnapshot): Cont
       if (latest) clearTimeout(latest);
       setStale(false);
     };
-  }, [session, branch]);
+  }, [session]);
 
   // Everything except the draft that can change the request, as one comparable value.
   const signature = JSON.stringify([
-    branch,
     snap.systemLine,
     snap.context,
-    snap.path.map((t) => [t.id, t.status, t.status === 'streaming' ? 0 : t.answer.length]),
+    ss.systemLine,
+    ss.context,
+    ss.roomContextOff,
+    ss.path.map((t) => [t.id, t.status, t.status === 'streaming' ? 0 : t.answer.length]),
     Object.entries(snap.roster).map(([pid, r]) => [pid, r.name]),
   ]);
 
+  const limits = modelLimits(ss.model);
   const assembled = useMemo(
-    () => assembleRoom(session.doc, branch),
+    () => assembleRoom(session.doc, { room: room.doc, contextWindow: limits.contextWindow }),
     // (the document is read again whenever one of these changes)
-    [session, branch, signature, draftTick],
+    [room, session, signature, draftTick, limits.contextWindow],
   );
   const blocks = useMemo(
     () =>
-      listContextWithText(session.doc).map((item) => ({
+      sessionContextItems(session.doc, room.doc).map((item) => ({
         id: item.id,
         ownerUid: item.ownerUid,
         included: item.included,
-        block: contextBlock(item.title, contextOwnerName(session.doc, item.ownerUid), item.text),
+        block: contextBlock(item.title, contextOwnerName(room.doc, item.ownerUid), item.text),
       })),
     // (the document is read again whenever one of these changes)
-    [session, signature],
+    [room, session, signature],
   );
 
-  const limits = modelLimits(snap.model);
   const engine = useWebLlmState();
   const engineReady =
-    limits.counting === 'engine' && engine.status === 'ready' && engine.model === snap.model.model;
-  const space = engineReady ? engineSpace(snap.model.model) : O200K;
+    limits.counting === 'engine' && engine.status === 'ready' && engine.model === ss.model.model;
+  const space = engineReady ? engineSpace(ss.model.model) : O200K;
   const version = useTokenVersion();
 
   // The tokenizer is a large download (about 1 MB) and takes a moment to start, so it is fetched

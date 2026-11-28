@@ -1,4 +1,4 @@
-import type { Transport } from '@promptalong/core';
+import { ChunkedTransport, type Transport } from '@promptalong/core';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { SupabaseTransport } from '../realtime/supabase-transport';
 import {
@@ -6,12 +6,16 @@ import {
   KEEPALIVE_MAX_BODY,
   readActionResult,
   readJoinResult,
+  readSessionResult,
+  readSessionsResult,
   readTouchResult,
   toBase64,
   type ActionResult,
   type JoinResult,
   type RoomBackend,
   type RoomInfo,
+  type SessionResult,
+  type SessionsResult,
   type TouchResult,
 } from './types';
 
@@ -130,7 +134,69 @@ export class SupabaseBackend implements RoomBackend {
   }
 
   transport(room: RoomInfo): Transport {
-    return new SupabaseTransport(() => this.getClient(), `room:${room.id}`);
+    // big changes go in parts: a broadcast may be at most 256 KB on the free plan
+    return new ChunkedTransport(new SupabaseTransport(() => this.getClient(), `room:${room.id}`));
+  }
+
+  async listSessions(roomId: string): Promise<SessionsResult> {
+    const res = await this.rpc('list_sessions', { p_room: roomId });
+    return res.offline ? { ok: false, reason: 'offline' } : readSessionsResult(res.data);
+  }
+
+  async createSession(roomId: string, name: string, members: string[]): Promise<SessionResult> {
+    const res = await this.rpc('create_session', {
+      p_room: roomId,
+      p_name: name,
+      p_members: members,
+    });
+    return res.offline ? { ok: false, reason: 'offline' } : readSessionResult(res.data);
+  }
+
+  async updateSession(
+    sessionId: string,
+    patch: { name?: string; members?: string[] },
+  ): Promise<SessionResult> {
+    const res = await this.rpc('update_session', {
+      p_session: sessionId,
+      p_name: patch.name ?? null,
+      p_members: patch.members ?? null,
+    });
+    return res.offline ? { ok: false, reason: 'offline' } : readSessionResult(res.data);
+  }
+
+  deleteSession(sessionId: string): Promise<ActionResult> {
+    return this.action('delete_session', { p_session: sessionId });
+  }
+
+  async loadSessionSnapshot(sessionId: string): Promise<Uint8Array | null> {
+    const res = await this.rpc('load_session_snapshot', { p_session: sessionId });
+    const data = res.data as { state?: unknown } | null;
+    return typeof data?.state === 'string' ? fromBase64(data.state) : null;
+  }
+
+  saveSessionSnapshot(sessionId: string, state: Uint8Array): Promise<ActionResult> {
+    return this.action('save_session_snapshot', { p_session: sessionId, p_state: toBase64(state) });
+  }
+
+  saveSessionOnLeave(sessionId: string, state: Uint8Array): void {
+    if (!this.token) return;
+    const body = JSON.stringify({ p_session: sessionId, p_state: toBase64(state) });
+    void fetch(`${this.url}/rest/v1/rpc/save_session_snapshot`, {
+      method: 'POST',
+      keepalive: body.length < KEEPALIVE_MAX_BODY,
+      headers: {
+        'content-type': 'application/json',
+        apikey: this.key,
+        authorization: `Bearer ${this.token}`,
+      },
+      body,
+    }).catch(() => undefined);
+  }
+
+  sessionTransport(_room: RoomInfo, sessionId: string): Transport {
+    return new ChunkedTransport(
+      new SupabaseTransport(() => this.getClient(), `session:${sessionId}`),
+    );
   }
 
   private async ensureUser(): Promise<string | null> {

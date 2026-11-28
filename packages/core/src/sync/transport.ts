@@ -19,6 +19,10 @@ export interface WireMessage {
   r?: 1;
   /** base64 payload */
   d: string;
+  /** set on one part of a message sent in parts (see chunks.ts) */
+  c?: { id: string; i: number; n: number };
+  /** 1 = the payload is gzip-compressed (see compress.ts) */
+  z?: 1;
 }
 
 export interface Transport {
@@ -45,5 +49,15 @@ export function parseWireMessage(value: unknown): WireMessage | null {
   if (typeof v.to === 'string') msg.to = v.to;
   if (typeof v.seq === 'number') msg.seq = v.seq;
   if (v.r === 1) msg.r = 1;
+  if (v.z === 1) msg.z = 1;
+  if (v.c !== undefined) {
+    const c = v.c as Record<string, unknown> | null;
+    if (typeof c !== 'object' || c === null) return null;
+    const { id, i, n } = c;
+    if (typeof id !== 'string' || id.length === 0 || id.length > 32) return null;
+    if (typeof n !== 'number' || !Number.isInteger(n) || n < 2 || n > 128) return null;
+    if (typeof i !== 'number' || !Number.isInteger(i) || i < 0 || i >= n) return null;
+    msg.c = { id, i, n };
+  }
   return msg;
 }

@@ -6,6 +6,10 @@ import { applyThemePreference } from './theme';
 import './styles/app.css';
 
 applyThemePreference();
+// "Same as device": follow the device when its setting changes
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+  applyThemePreference();
+});
 
 const root = document.getElementById('root');
 if (!root) throw new Error('Missing #root element');

@@ -5,7 +5,7 @@ import {
   normalizeRoomCode,
   type SendPolicy,
 } from '@promptalong/core';
-import { Button, Card, cx, initials, presenceHex } from '@promptalong/ui';
+import { Button, cx, initials, presenceHex } from '@promptalong/ui';
 import { useEffect, useRef, useState, type ClipboardEvent, type KeyboardEvent } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import { SiteNav } from '../components/SiteNav';
@@ -92,7 +92,7 @@ export function CodeInput({
             e.currentTarget.select();
           }}
           className={cx(
-            'h-[52px] w-full min-w-0 rounded-md border bg-surface text-center font-mono text-[22px] font-semibold text-text uppercase',
+            'h-[52px] w-full min-w-0 rounded-xl border bg-surface text-center font-mono text-[22px] font-semibold text-text uppercase',
             invalid ? 'border-danger' : 'border-border-strong',
           )}
         />
@@ -101,49 +101,11 @@ export function CodeInput({
   );
 }
 
-function Choice({
-  checked,
-  title,
-  body,
-  value,
-  onSelect,
-}: {
-  checked: boolean;
-  title: string;
-  body: string;
-  value: SendPolicy;
-  onSelect: (v: SendPolicy) => void;
-}) {
-  return (
-    <label
-      className={cx(
-        'flex cursor-pointer gap-2.5 rounded-lg border p-3 has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-focus-ring',
-        checked ? 'border-accent border-2 p-[11px]' : 'border-border-strong',
-      )}
-    >
-      <input
-        type="radio"
-        name="send-policy"
-        value={value}
-        checked={checked}
-        onChange={() => {
-          onSelect(value);
-        }}
-        className="mt-0.5 size-[18px] accent-[var(--c-accent)]"
-      />
-      <span>
-        <b className="block text-sm">{title}</b>
-        <span className="mt-0.5 block text-xs leading-snug text-text-muted">{body}</span>
-      </span>
-    </label>
-  );
-}
-
 export function LobbyPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const [roomName, setRoomName] = useState('');
-  const [policy, setPolicy] = useState<SendPolicy>('everyone');
+  const [hostOnly, setHostOnly] = useState(false);
   const [code, setCode] = useState<string[]>(() =>
     Array.from({ length: ROOM_CODE_LENGTH }, () => ''),
   );
@@ -170,8 +132,8 @@ export function LobbyPage() {
 
   const create = () => {
     if (!requireName()) return;
-    const newCode = createRoomCode();
-    void navigate(`/r/${newCode}`, {
+    const policy: SendPolicy = hostOnly ? 'host' : 'everyone';
+    void navigate(`/r/${createRoomCode()}`, {
       state: { create: { name: roomName, sendPolicy: policy }, share: true },
     });
   };
@@ -184,135 +146,135 @@ export function LobbyPage() {
     void navigate(`/r/${normal}`);
   };
 
+  const field =
+    'h-11 w-full rounded-xl border border-border-strong bg-surface px-3.5 text-base text-text placeholder:text-text-muted';
+
   return (
     <>
       <SiteNav />
-      <main className="mx-auto max-w-[1040px] px-4 pt-6 pb-12 md:px-6 md:pt-12">
-        <h1 className="text-[28px] font-bold md:text-[36px]">Start or join a room</h1>
+      <main className="mx-auto max-w-[460px] px-4 pt-8 pb-16 md:pt-14">
+        <h1 className="text-[30px] font-bold tracking-[-0.03em] md:text-[36px]">
+          Start or join a room
+        </h1>
         <p className="mt-2 text-text-muted">
-          Rooms hold up to 8 people. Anyone with the link or code can join until you lock the room.
+          Up to 8 people write one prompt together. No sign-up.
         </p>
 
-        <div className="mt-8 grid grid-cols-1 gap-6 md:grid-cols-2">
-          <Card className="p-7 max-md:p-5">
-            <h2 className="text-[22px] font-bold">Start a new room</h2>
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                create();
+        <div className="mt-8 flex items-center gap-3">
+          <span
+            aria-hidden="true"
+            className="grid size-11 flex-none place-items-center rounded-full text-sm font-bold"
+            style={{ background: preview.color, color: preview.label }}
+          >
+            {name.trim() ? initials(name) : '?'}
+          </span>
+          <div className="flex-1">
+            <label htmlFor="display-name" className="mb-1 block text-sm font-medium">
+              Your display name
+            </label>
+            <NameField
+              id="display-name"
+              value={name}
+              onChange={(v) => {
+                setName(v);
+                setNameInvalid(false);
               }}
-            >
-              <label htmlFor="room-name" className="mt-5 mb-1.5 block text-sm font-semibold">
-                Room name
-              </label>
-              <input
-                id="room-name"
-                value={roomName}
-                maxLength={60}
-                placeholder="Untitled room"
-                onChange={(e) => {
-                  setRoomName(e.target.value);
-                }}
-                className="h-11 w-full rounded-md border border-border-strong bg-surface px-3 text-base text-text placeholder:text-text-muted"
-              />
-              <fieldset className="mt-5">
-                <legend className="mb-2 text-sm">Who can press Send</legend>
-                <div className="grid grid-cols-2 gap-2.5 max-md:grid-cols-1">
-                  <Choice
-                    checked={policy === 'everyone'}
-                    value="everyone"
-                    title="Everyone"
-                    body="Any participant can send the prompt."
-                    onSelect={setPolicy}
-                  />
-                  <Choice
-                    checked={policy === 'host'}
-                    value="host"
-                    title="Host only"
-                    body="Only you can send. Others co-write."
-                    onSelect={setPolicy}
-                  />
-                </div>
-              </fieldset>
-              <p className="mt-5 mb-1.5 text-sm">Model to start with</p>
-              <div className="flex h-11 items-center justify-between rounded-md border border-border-strong bg-surface px-3">
-                <span>Demo model (scripted, no key needed)</span>
-                <span className="text-xs text-text-muted">Change later</span>
-              </div>
-              <Button type="submit" variant="primary" size="lg" className="mt-[22px] w-full">
-                Create room
-              </Button>
-            </form>
-          </Card>
-
-          <Card className="p-7 max-md:p-5">
-            <h2 id="join" ref={joinRef} className="scroll-mt-4 text-[22px] font-bold">
-              Join with a code
-            </h2>
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                join();
-              }}
-            >
-              <p className="mt-5 mb-1.5 text-sm font-semibold">Room code</p>
-              <CodeInput
-                value={code}
-                onChange={(v) => {
-                  setCode(v);
-                  setCodeInvalid(false);
-                }}
-                onComplete={() => {
-                  setCodeInvalid(false);
-                }}
-                invalid={codeInvalid}
-              />
-              <p
-                className={cx('mt-1.5 text-xs', codeInvalid ? 'text-danger' : 'text-text-muted')}
-                role={codeInvalid ? 'alert' : undefined}
-              >
-                {codeInvalid
-                  ? 'Codes are 6 letters and numbers, like K7Q-M2X.'
-                  : 'Or open the link your teammate shared.'}
-              </p>
-              <Button type="submit" size="lg" className="mt-[22px] w-full">
-                Join room
-              </Button>
-            </form>
-            <hr className="mt-6 border-0 border-t border-border" />
-            <div className="mt-6 flex items-center gap-3 rounded-md bg-surface-2 p-3">
-              <span
-                aria-hidden="true"
-                className="grid size-10 flex-none place-items-center rounded-full text-sm font-bold"
-                style={{ background: preview.color, color: preview.label }}
-              >
-                {name.trim() ? initials(name) : '?'}
-              </span>
-              <div className="flex-1">
-                <label htmlFor="display-name" className="mb-1 block text-sm font-semibold">
-                  Your display name
-                </label>
-                <NameField
-                  id="display-name"
-                  value={name}
-                  onChange={(v) => {
-                    setName(v);
-                    setNameInvalid(false);
-                  }}
-                  invalid={nameInvalid}
-                />
-              </div>
-            </div>
-            <p
-              className={cx('mt-2 text-xs', nameInvalid ? 'text-danger' : 'text-text-muted')}
-              role={nameInvalid ? 'alert' : undefined}
-            >
-              {nameInvalid
-                ? 'Add your name first - it is shown next to your cursor.'
-                : 'Shown next to your cursor and on every part of the prompt you write. Your colour is set when you join.'}
-            </p>
-          </Card>
+              invalid={nameInvalid}
+            />
+          </div>
         </div>
+        <p
+          className={cx('mt-1.5 pl-14 text-xs', nameInvalid ? 'text-danger' : 'text-text-muted')}
+          role={nameInvalid ? 'alert' : undefined}
+        >
+          {nameInvalid
+            ? 'Add your name first - it is shown next to your cursor.'
+            : 'Shown next to your cursor and on what you write.'}
+        </p>
+
+        <form
+          className="mt-8"
+          onSubmit={(e) => {
+            e.preventDefault();
+            create();
+          }}
+        >
+          <h2 className="text-lg font-semibold">New room</h2>
+          <label htmlFor="room-name" className="mt-3 mb-1.5 block text-sm font-medium">
+            Room name
+          </label>
+          <input
+            id="room-name"
+            value={roomName}
+            maxLength={60}
+            placeholder="Untitled room"
+            onChange={(e) => {
+              setRoomName(e.target.value);
+            }}
+            className={field}
+          />
+          <label className="mt-3 flex cursor-pointer items-start gap-2.5 text-sm">
+            <input
+              type="checkbox"
+              checked={hostOnly}
+              onChange={(e) => {
+                setHostOnly(e.target.checked);
+              }}
+              className="mt-0.5 size-[18px] accent-[var(--c-accent)]"
+              data-testid="host-only"
+            />
+            <span>
+              Only I can press Send
+              <span className="block text-xs text-text-muted">
+                Everyone still writes the prompt with you. You can change the model inside the room.
+              </span>
+            </span>
+          </label>
+          <Button type="submit" variant="primary" size="lg" className="mt-5 w-full rounded-xl">
+            Create room
+          </Button>
+        </form>
+
+        <div className="my-8 flex items-center gap-3 text-xs text-text-muted" aria-hidden="true">
+          <span className="h-px flex-1 bg-border" />
+          or
+          <span className="h-px flex-1 bg-border" />
+        </div>
+
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            join();
+          }}
+        >
+          <h2 id="join" ref={joinRef} className="scroll-mt-4 text-lg font-semibold">
+            Join with a code
+          </h2>
+          <div className="mt-3">
+            <CodeInput
+              value={code}
+              onChange={(v) => {
+                setCode(v);
+                setCodeInvalid(false);
+              }}
+              onComplete={() => {
+                setCodeInvalid(false);
+              }}
+              invalid={codeInvalid}
+            />
+          </div>
+          <p
+            className={cx('mt-1.5 text-xs', codeInvalid ? 'text-danger' : 'text-text-muted')}
+            role={codeInvalid ? 'alert' : undefined}
+          >
+            {codeInvalid
+              ? 'Codes are 6 letters and numbers, like K7Q-M2X.'
+              : 'Or open the link your teammate shared.'}
+          </p>
+          <Button type="submit" size="lg" className="mt-4 w-full rounded-xl">
+            Join room
+          </Button>
+        </form>
       </main>
     </>
   );

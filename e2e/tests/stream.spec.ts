@@ -66,10 +66,13 @@ test.describe('send and shared stream', () => {
       const watchers = [meera, kabir].map(recordGrowth);
       await aarav.page.getByTestId('send-button').click();
 
-      // everyone sees it streaming, the sender's Send is busy, the others see who is sending
+      // everyone sees it streaming and who is sending; anyone may stop it
       for (const p of people) await expect(lastTurn(p)).toHaveAttribute('data-status', 'streaming');
-      await expect(meera.page.getByTestId('send-button')).toHaveText('Aarav is sending…');
-      await expect(meera.page.getByTestId('send-button')).toBeDisabled();
+      await expect(lastTurn(meera).getByTestId('turn-meta')).toContainText('Answering Aarav');
+      await expect(meera.page.getByTestId('send-hint')).toContainText(
+        "Send is free again when Aarav's answer ends.",
+      );
+      await expect(meera.page.getByTestId('stop-button')).toBeVisible();
       for (const p of people)
         await expect(lastTurn(p)).toHaveAttribute('data-status', 'done', { timeout: 15_000 });
       await Promise.all(watchers.map((w) => w.stop()));
@@ -86,7 +89,11 @@ test.describe('send and shared stream', () => {
         'Make it 2 minutes and end with one clear ask for the judges',
       );
       for (const p of people) await expect.poll(() => promptText(p)).toBe('');
-      for (const p of people) await expect(p.page.getByTestId('send-button')).toHaveText('Send');
+      for (const p of people) {
+        await expect(p.page.getByTestId('send-button')).toHaveAccessibleName('Send');
+        // the prompt is empty again: nothing to send until someone writes
+        await expect(p.page.getByTestId('send-button')).toBeDisabled();
+      }
     } finally {
       await closeAll(people);
     }
@@ -103,13 +110,14 @@ test.describe('send and shared stream', () => {
       await aarav.page.keyboard.press('Control+Enter'); // keyboard Send
       await expect(lastTurn(kabir)).toHaveAttribute('data-status', 'streaming');
       await expect.poll(() => lastAnswer(kabir)).not.toBe('');
-      await lastTurn(kabir).getByRole('button', { name: 'Stop' }).click();
+      await kabir.page.getByRole('button', { name: 'Stop' }).click();
       for (const p of [aarav, kabir]) {
         await expect(lastTurn(p)).toHaveAttribute('data-status', 'stopped');
       }
       await expect(lastTurn(aarav).getByTestId('turn-meta')).toContainText('Stopped by Kabir');
       await expect(lastTurn(kabir).getByTestId('turn-meta')).toContainText('Stopped by you');
       expect(await lastAnswer(aarav)).toBe(await lastAnswer(kabir));
+      await writePrompt(kabir, 'Shorter');
       await expect(kabir.page.getByTestId('send-button')).toBeEnabled();
     } finally {
       await closeAll([aarav, kabir]);
@@ -122,7 +130,7 @@ test.describe('send and shared stream', () => {
     try {
       await meera.page.goto('/new');
       await meera.page.getByLabel('Room name').fill('Host only room');
-      await meera.page.getByText('Host only', { exact: true }).click();
+      await meera.page.getByTestId('host-only').check();
       await meera.page.getByRole('button', { name: 'Create room' }).click();
       await meera.page.waitForURL(/\/r\/[1-9A-Z]{6}$/u);
       await meera.page.getByRole('dialog').getByRole('button', { name: 'Close' }).click();
@@ -152,6 +160,7 @@ test.describe('send and shared stream', () => {
       await expect(lastTurn(meera)).toHaveAttribute('data-status', 'failed');
       await expect(meera.page.getByTestId('turn-error')).toContainText('rate limit reached');
       await expect(lastTurn(meera).getByRole('button', { name: 'Retry' })).toBeVisible();
+      await writePrompt(meera, 'Try once more');
       await expect(meera.page.getByTestId('send-button')).toBeEnabled();
     } finally {
       await closeAll([aarav, meera]);
@@ -175,7 +184,8 @@ test.describe('send and shared stream', () => {
       });
       await expect(lastTurn(meera).getByTestId('turn-meta')).toContainText('Interrupted');
       expect((await lastAnswer(meera)).length).toBeGreaterThan(0);
-      await expect(meera.page.getByTestId('send-button')).toHaveText('Send');
+      await expect(meera.page.getByTestId('send-button')).toHaveAccessibleName('Send');
+      await writePrompt(meera, 'Again please');
       await expect(meera.page.getByTestId('send-button')).toBeEnabled();
     } finally {
       await closeAll([aarav, meera]);
@@ -286,14 +296,14 @@ test.describe('your own key', () => {
       await joinRoom(meera, code);
 
       await aarav.page.getByTestId('model-button').click();
-      const dialog = aarav.page.getByRole('dialog', { name: 'Model for this room' });
+      const dialog = aarav.page.getByRole('dialog', { name: 'Model for this session' });
       await dialog.getByText('Your own key', { exact: true }).click();
       await dialog.getByTestId('key-input').fill(CANARY);
-      await dialog.getByRole('button', { name: 'Use for this room' }).click();
+      await dialog.getByRole('button', { name: 'Use for this session' }).click();
       await expect(dialog).toBeHidden();
 
       // Meera sees whose key it is, never the key
-      await expect(meera.page.getByTestId('model-notice')).toContainText("Uses Aarav's key");
+      await expect(meera.page.getByTestId('model-notice')).toContainText("uses Aarav's key");
       await expect(meera.page.getByTestId('model-button')).toContainText('OpenRouter');
 
       await writePrompt(meera, 'Summarise the three survey answers in one table.');

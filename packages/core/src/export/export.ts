@@ -1,19 +1,16 @@
 import type * as Y from 'yjs';
-import { listBranches, listMergeEvents, turnLabels, turnsOnPath } from '../branches/branches';
-import { readAuthors } from '../branches/fork';
+import { conversation, turnLabels } from '../history/history';
 import { listContextWithText, readSystemLine } from '../context/context';
-import { MAIN_BRANCH, peopleMap, readSettings } from '../room/doc';
+import { peopleMap, readSettings } from '../room/doc';
 import { formatRoomCode } from '../room-code';
 import type { TurnView } from '../turns/turns';
 
 /**
- * Export (8.8): one branch of the conversation as Markdown (readable) or JSON (the full record:
- * prompt segments with authors, context, model, timestamps, the branch tree). Built in the
- * browser from the room document. A room document never holds a model key, so an export cannot
- * contain one.
+ * Export (8.8): the conversation as Markdown (readable) or JSON (the full record: prompt segments
+ * with authors, context, model, timestamps). Built in the browser from the room document. A room
+ * document never holds a model key, so an export cannot contain one.
  */
 export interface ExportOptions {
-  branchId: string;
   /** the context each turn used, and the room's context items with their text */
   includeContext: boolean;
   /** real display names; when off, people become "Person 1", "Person 2"... */
@@ -24,7 +21,6 @@ export interface ExportOptions {
 
 function namer(doc: Y.Doc, includeAuthors: boolean): (pid: string) => string {
   const names = new Map<string, string>();
-  for (const [pid, a] of readAuthors(doc)) names.set(pid, a.name);
   peopleMap(doc).forEach((rec, pid) => {
     if (typeof rec === 'object' && typeof rec.name === 'string') names.set(pid, rec.name);
   });
@@ -38,11 +34,6 @@ function namer(doc: Y.Doc, includeAuthors: boolean): (pid: string) => string {
     }
     return label;
   };
-}
-
-function branchLabel(doc: Y.Doc, branchId: string): string {
-  if (branchId === MAIN_BRANCH) return 'main';
-  return listBranches(doc).find((b) => b.id === branchId)?.name ?? branchId;
 }
 
 /** The authors of a prompt in the order they first appear. */
@@ -73,22 +64,41 @@ const quote = (text: string) =>
     .map((line) => (line ? `> ${line}` : '>'))
     .join('\n');
 
-export function exportMarkdown(doc: Y.Doc, options: ExportOptions): string {
-  const name = namer(doc, options.includeAuthors);
+/** One session of an export: its name (null for a room with one unnamed conversation) and doc. */
+export interface ExportSession {
+  name: string | null;
+  doc: Y.Doc;
+}
+
+/**
+ * What an export covers: the room document (name, people, room instructions and room context)
+ * and the sessions to include, in order. A single Y.Doc is a room with one conversation.
+ */
+export interface ExportSource {
+  room: Y.Doc;
+  sessions: ExportSession[];
+}
+
+function sourceOf(input: Y.Doc | ExportSource): ExportSource {
+  return 'room' in input && 'sessions' in input
+    ? input
+    : { room: input, sessions: [{ name: null, doc: input }] };
+}
+
+function turnsMarkdown(
+  out: string[],
+  doc: Y.Doc,
+  level: string,
+  name: (pid: string) => string,
+  options: ExportOptions,
+): void {
   const labels = turnLabels(doc);
-  const turns = turnsOnPath(doc, options.branchId);
-  const settings = readSettings(doc);
-  const out: string[] = [];
-  out.push(`# ${settings?.name ?? 'Untitled room'}`, '');
-  out.push(
-    `Room ${formatRoomCode(options.code)} · branch ${branchLabel(doc, options.branchId)} · ${String(turns.length)} ${turns.length === 1 ? 'turn' : 'turns'} · exported ${new Date(options.exportedAt).toISOString().slice(0, 10)}`,
-    '',
-  );
-  if (turns.length === 0) out.push('Nothing has been sent on this branch yet.', '');
+  const turns = conversation(doc);
+  if (turns.length === 0) out.push('Nothing has been sent here yet.', '');
   for (const turn of turns) {
     const label = labels.get(turn.id) ?? '';
     out.push(
-      `## ${label ? `Turn ${label.replace(/^T/u, '')}` : 'Turn'} - sent by ${name(turn.sentBy)}`,
+      `${level} ${label ? `Turn ${label.replace(/^T/u, '')}` : 'Turn'} - sent by ${name(turn.sentBy)}`,
       '',
     );
     const authors = promptAuthors(turn).map(name);
@@ -99,7 +109,7 @@ export function exportMarkdown(doc: Y.Doc, options: ExportOptions): string {
       '',
     );
     if (options.includeContext) {
-      if (turn.systemLine) out.push(`Room line: ${turn.systemLine}`);
+      if (turn.systemLine) out.push(`Instructions: ${turn.systemLine}`);
       if (turn.context.length > 0) {
         out.push(
           `Context: ${turn.context.map((c) => `${c.title} (${name(c.ownerUid)})`).join(', ')}`,
@@ -114,33 +124,76 @@ export function exportMarkdown(doc: Y.Doc, options: ExportOptions): string {
     if (status) out.push(status);
     out.push('', turn.answer.trim() || '(no answer)', '');
   }
+}
+
+function itemsMarkdown(
+  out: string[],
+  items: ReturnType<typeof listContextWithText>,
+  heading: string,
+  level: string,
+  name: (pid: string) => string,
+): void {
+  if (items.length === 0) return;
+  out.push(heading, '');
+  for (const item of items) {
+    out.push(
+      `${level} ${item.title} (${name(item.ownerUid)}, ${item.kind}${item.included ? '' : ', excluded'})`,
+      '',
+      quote(item.text),
+      '',
+    );
+  }
+}
+
+export function exportMarkdown(input: Y.Doc | ExportSource, options: ExportOptions): string {
+  const { room, sessions } = sourceOf(input);
+  const name = namer(room, options.includeAuthors);
+  const settings = readSettings(room);
+  const plain = sessions.length === 1 && sessions[0]?.name === null;
+  const turnCount = sessions.reduce((n, s) => n + conversation(s.doc).length, 0);
+  const out: string[] = [];
+  out.push(`# ${settings?.name ?? 'Untitled room'}`, '');
+  const parts = [`Room ${formatRoomCode(options.code)}`];
+  if (!plain) {
+    parts.push(`${String(sessions.length)} ${sessions.length === 1 ? 'session' : 'sessions'}`);
+  }
+  parts.push(`${String(turnCount)} ${turnCount === 1 ? 'turn' : 'turns'}`);
+  parts.push(`exported ${new Date(options.exportedAt).toISOString().slice(0, 10)}`);
+  out.push(parts.join(' · '), '');
+  if (plain) {
+    const only = sessions[0];
+    if (only) turnsMarkdown(out, only.doc, '##', name, options);
+    if (options.includeContext) {
+      itemsMarkdown(out, plainItems(room, only?.doc), '## Context items', '###', name);
+    }
+    return `${out.join('\n').trimEnd()}\n`;
+  }
   if (options.includeContext) {
-    const items = listContextWithText(doc);
-    if (items.length > 0) {
-      out.push('## Context items', '');
-      for (const item of items) {
-        out.push(
-          `### ${item.title} (${name(item.ownerUid)}, ${item.kind}${item.included ? '' : ', excluded'})`,
-          '',
-          quote(item.text),
-          '',
-        );
-      }
+    const line = readSystemLine(room);
+    if (line) out.push(`Room instructions: ${line}`, '');
+    itemsMarkdown(out, listContextWithText(room), '## Room context', '###', name);
+  }
+  for (const session of sessions) {
+    out.push(`## ${session.name ?? 'Session'}`, '');
+    if (options.includeContext) {
+      const line = readSystemLine(session.doc);
+      if (line) out.push(`Session instructions: ${line}`, '');
+    }
+    turnsMarkdown(out, session.doc, '###', name, options);
+    if (options.includeContext) {
+      itemsMarkdown(out, listContextWithText(session.doc), '### Session context', '####', name);
     }
   }
   return `${out.join('\n').trimEnd()}\n`;
 }
 
-export function exportJson(doc: Y.Doc, options: ExportOptions): string {
-  const name = namer(doc, options.includeAuthors);
+function turnsJson(doc: Y.Doc, name: (pid: string) => string, options: ExportOptions) {
   const labels = turnLabels(doc);
-  const settings = readSettings(doc);
   const person = (pid: string | undefined | null) => (pid ? name(pid) : null);
-  const turns = turnsOnPath(doc, options.branchId).map((turn) => ({
+  return conversation(doc).map((turn) => ({
     label: labels.get(turn.id) ?? null,
     id: turn.id,
     parentId: turn.parentId,
-    branch: branchLabel(doc, turn.branchId),
     sentAt: new Date(turn.createdAt).toISOString(),
     sentBy: name(turn.sentBy),
     prompt: {
@@ -180,55 +233,163 @@ export function exportJson(doc: Y.Doc, options: ExportOptions): string {
     usage: turn.usage ?? null,
     durationMs: turn.durationMs ?? null,
   }));
-  const record = {
+}
+
+/** A room with one conversation: the room's items, then the conversation's own. */
+function plainItems(room: Y.Doc, doc: Y.Doc | undefined) {
+  return [...listContextWithText(room), ...(doc && doc !== room ? listContextWithText(doc) : [])];
+}
+
+function itemsJson(items: ReturnType<typeof listContextWithText>, name: (pid: string) => string) {
+  return items.map((item) => ({
+    title: item.title,
+    kind: item.kind,
+    owner: name(item.ownerUid),
+    included: item.included,
+    text: item.text,
+  }));
+}
+
+export function exportJson(input: Y.Doc | ExportSource, options: ExportOptions): string {
+  const { room, sessions } = sourceOf(input);
+  const name = namer(room, options.includeAuthors);
+  const settings = readSettings(room);
+  const plain = sessions.length === 1 && sessions[0]?.name === null;
+  const head = {
     app: 'PromptAlong',
-    format: 1,
+    format: plain ? 1 : 2,
     exportedAt: new Date(options.exportedAt).toISOString(),
     room: { name: settings?.name ?? 'Untitled room', code: options.code },
-    branch: branchLabel(doc, options.branchId),
     authorNames: options.includeAuthors,
-    turns,
-    branches: listBranches(doc).map((b) => ({
-      name: b.id === MAIN_BRANCH ? 'main' : b.name,
-      from: b.fromTurnId ? (labels.get(b.fromTurnId) ?? b.fromTurnId) : null,
-      createdBy: b.id === MAIN_BRANCH ? null : name(b.createdBy),
-    })),
-    merges: listMergeEvents(doc).map((m) => ({
-      from: branchLabel(doc, m.from),
-      into: branchLabel(doc, m.into),
-      by: name(m.by),
-      at: new Date(m.at).toISOString(),
-      conflicts: m.conflicts,
-    })),
-    ...(options.includeContext
-      ? {
-          roomLine: readSystemLine(doc) || null,
-          contextItems: listContextWithText(doc).map((item) => ({
-            title: item.title,
-            kind: item.kind,
-            owner: name(item.ownerUid),
-            included: item.included,
-            text: item.text,
-          })),
-        }
-      : {}),
   };
+  const context = (doc: Y.Doc, key: 'roomLine' | 'instructions') =>
+    options.includeContext
+      ? {
+          [key]: readSystemLine(doc) || null,
+          contextItems: itemsJson(listContextWithText(doc), name),
+        }
+      : {};
+  const only = sessions[0];
+  const record = plain
+    ? {
+        ...head,
+        turns: only ? turnsJson(only.doc, name, options) : [],
+        ...(options.includeContext
+          ? {
+              roomLine:
+                [readSystemLine(room), only && only.doc !== room ? readSystemLine(only.doc) : '']
+                  .filter(Boolean)
+                  .join('\n\n') || null,
+              contextItems: itemsJson(plainItems(room, only?.doc), name),
+            }
+          : {}),
+      }
+    : {
+        ...head,
+        ...context(room, 'instructions'),
+        sessions: sessions.map((s) => ({
+          name: s.name ?? 'Session',
+          ...context(s.doc, 'instructions'),
+          turns: turnsJson(s.doc, name, options),
+        })),
+      };
   return `${JSON.stringify(record, null, 2)}\n`;
 }
 
-/** A file name for the download: room name, branch, date. */
-export function exportFileName(
-  roomName: string,
-  branch: string,
-  at: number,
-  ext: 'md' | 'json',
-): string {
+/** An export as data: what a PDF or a printed page draws. Names are resolved already. */
+export interface ExportModelTurn {
+  label: string;
+  sentBy: string;
+  authors: string[];
+  prompt: string;
+  answer: string;
+  model: string;
+  status: string | null;
+  /** the instructions and context titles the turn was sent with (when context is included) */
+  instructions: string;
+  context: string[];
+  /** a second model's answer to the turn before (shown next to it) */
+  comparison: boolean;
+}
+
+export interface ExportModelItem {
+  title: string;
+  owner: string;
+  kind: string;
+  included: boolean;
+  text: string;
+}
+
+export interface ExportModelSession {
+  name: string | null;
+  instructions: string;
+  context: ExportModelItem[];
+  turns: ExportModelTurn[];
+}
+
+export interface ExportModel {
+  roomName: string;
+  code: string;
+  exportedAt: number;
+  instructions: string;
+  context: ExportModelItem[];
+  sessions: ExportModelSession[];
+  includeContext: boolean;
+}
+
+export function exportModel(input: Y.Doc | ExportSource, options: ExportOptions): ExportModel {
+  const { room, sessions } = sourceOf(input);
+  const name = namer(room, options.includeAuthors);
+  const items = (list: ReturnType<typeof listContextWithText>): ExportModelItem[] =>
+    options.includeContext
+      ? list.map((i) => ({
+          title: i.title,
+          owner: name(i.ownerUid),
+          kind: i.kind,
+          included: i.included,
+          text: i.text,
+        }))
+      : [];
+  const plain = sessions.length === 1 && sessions[0]?.name === null;
+  return {
+    roomName: readSettings(room)?.name ?? 'Untitled room',
+    code: formatRoomCode(options.code),
+    exportedAt: options.exportedAt,
+    instructions: options.includeContext ? readSystemLine(room) : '',
+    context: plain ? [] : items(listContextWithText(room)),
+    includeContext: options.includeContext,
+    sessions: sessions.map((s) => {
+      const labels = turnLabels(s.doc);
+      return {
+        name: s.name,
+        instructions: options.includeContext && s.doc !== room ? readSystemLine(s.doc) : '',
+        context: plain ? items(plainItems(room, s.doc)) : items(listContextWithText(s.doc)),
+        turns: conversation(s.doc).map((t) => ({
+          label: labels.get(t.id) ?? '',
+          sentBy: name(t.sentBy),
+          authors: promptAuthors(t).map(name),
+          prompt: t.prompt.text,
+          answer: t.answer,
+          model: t.provider.label,
+          status: statusLine(t, name),
+          instructions: options.includeContext ? t.systemLine : '',
+          context: options.includeContext
+            ? t.context.map((c) => `${c.title} (${name(c.ownerUid)})`)
+            : [],
+          comparison: t.compareOf !== undefined,
+        })),
+      };
+    }),
+  };
+}
+
+/** A file name for the download: room name and date. */
+export function exportFileName(roomName: string, at: number, ext: string): string {
   const slug = (text: string) =>
     text
       .toLowerCase()
       .replace(/[^a-z0-9]+/gu, '-')
       .replace(/^-+|-+$/gu, '')
       .slice(0, 40);
-  const parts = [slug(roomName) || 'room', branch === 'main' ? '' : slug(branch)].filter(Boolean);
-  return `${parts.join('-')}-${new Date(at).toISOString().slice(0, 10)}.${ext}`;
+  return `${slug(roomName) || 'room'}-${new Date(at).toISOString().slice(0, 10)}.${ext}`;
 }

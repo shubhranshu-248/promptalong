@@ -1,16 +1,22 @@
 import type * as Y from 'yjs';
-import { historyEntries } from '../branches/branches';
-import { authorsMap } from '../branches/fork';
+import { FIT_CHARS_PER_TOKEN, fitHistory } from '../history/fit';
+import { historyEntries } from '../history/history';
+import { messageOverhead, promptBudget } from './budget';
 import { fragmentWithSpans, trimWithSpans, type Span } from '../provenance/spans';
-import { MAIN_BRANCH, draftFragment, peopleMap } from '../room/doc';
-import { listContextWithText, readSystemLine, type ContextKind } from './context';
+import { promptFragment, peopleMap } from '../room/doc';
+import {
+  listContextWithText,
+  readSystemLine,
+  type ContextItemView,
+  type ContextKind,
+} from './context';
 
 /**
  * The one place a request is put together (ADR-005, "Honest context"). The context panel and Send
  * both call this, so what the panel shows is what is sent:
  *   1. one leading system message: the room line (if any), then every included context item in
  *      creation order, each as "[context: {title} · {owner}]\n{text}", separated by a blank line
- *   2. the branch history (prompt + answer of every finished turn)
+ *   2. the conversation so far (prompt + answer of every finished turn)
  *   3. the prompt
  * Nothing else is added. With no room line and no included item there is no system message.
  */
@@ -72,6 +78,8 @@ export interface Assembled {
   /** the included items, in the order they are sent */
   items: AssembledItem[];
   systemLine: string;
+  /** turns sent shortened, and turns left out, so the request fits the model */
+  fitted: { shortened: string[]; left: string[] };
 }
 
 export const CONTEXT_SEPARATOR = '\n\n';
@@ -139,41 +147,96 @@ export function assemble(input: AssembleInput): Assembled {
 
   segments.push({ kind: 'prompt', role: 'user', text: input.prompt, message: messages.length });
   messages.push({ role: 'user', content: input.prompt });
-  return { messages, segments, items, systemLine };
+  return { messages, segments, items, systemLine, fitted: { shortened: [], left: [] } };
 }
 
 /** The draft prompt as Send freezes it: trimmed, with its author spans. */
-export function draftPrompt(
-  doc: Y.Doc,
-  branchId: string = MAIN_BRANCH,
-): { text: string; spans: Span[] } {
-  const draft = fragmentWithSpans(draftFragment(doc, branchId));
+export function draftPrompt(doc: Y.Doc): { text: string; spans: Span[] } {
+  const draft = fragmentWithSpans(promptFragment(doc));
   return trimWithSpans(draft.text, draft.spans);
 }
 
 /**
- * The name written into a context block. It is read from the room document only (people list,
- * then the frozen authors of a forked room), so every device builds the same bytes.
+ * The name written into a context block. It is read from the room document only (the people
+ * list), so every device builds the same bytes.
  */
 export function contextOwnerName(doc: Y.Doc, uid: string): string {
   const person = peopleMap(doc).get(uid) as { name?: unknown } | undefined;
   if (typeof person?.name === 'string' && person.name) return person.name.slice(0, 24);
-  const author = authorsMap(doc).get(uid) as { name?: unknown } | undefined;
-  if (typeof author?.name === 'string' && author.name) return author.name.slice(0, 24);
   return 'someone';
 }
 
-/** Assembles the request for a branch from the room document (prompt = its draft unless given). */
+/** The session's switch for one of the room's context items (room items are on by default). */
+export const ROOM_CONTEXT_OFF = 'roomContextOff';
+
+export function isRoomItemIncluded(session: Y.Doc, itemId: string): boolean {
+  return session.getMap<boolean>(ROOM_CONTEXT_OFF).get(itemId) !== true;
+}
+
+export function setRoomItemIncluded(session: Y.Doc, itemId: string, included: boolean): void {
+  const off = session.getMap<boolean>(ROOM_CONTEXT_OFF);
+  if (included) off.delete(itemId);
+  else off.set(itemId, true);
+}
+
+/**
+ * Assembles the request (prompt = the shared draft unless given). With `room`, the document is a
+ * session of that room: the room's instructions and context items come first (each switched on or
+ * off for this session alone), then the session's own instructions and items. Names come from the
+ * room's people list, so every device builds the same bytes.
+ */
+export type ScopedContextItem = ContextItemView & { text: string; scope: 'room' | 'session' };
+
+/**
+ * The context items a session sends, in order: the room's items (each on unless this session
+ * switched it off), then the session's own. Send and the context panel both read this list.
+ */
+export function sessionContextItems(doc: Y.Doc, room: Y.Doc | null = null): ScopedContextItem[] {
+  const own = listContextWithText(doc).map((i) => ({ ...i, scope: 'session' as const }));
+  if (!room) return own;
+  return [
+    ...listContextWithText(room).map((i) => ({
+      ...i,
+      included: isRoomItemIncluded(doc, i.id),
+      scope: 'room' as const,
+    })),
+    ...own,
+  ];
+}
+
 export function assembleRoom(
   doc: Y.Doc,
-  branchId: string = MAIN_BRANCH,
-  options: { prompt?: string } = {},
+  options: {
+    prompt?: string;
+    room?: Y.Doc | null;
+    /** the model's window: older turns are shortened or left out to fit it (none = all whole) */
+    contextWindow?: number;
+    /** send the history as it was before this turn (a comparison of it) */
+    historyBefore?: string;
+  } = {},
 ): Assembled {
-  return assemble({
-    systemLine: readSystemLine(doc),
-    items: listContextWithText(doc),
-    ownerName: (uid) => contextOwnerName(doc, uid),
-    history: historyEntries(doc, branchId),
-    prompt: options.prompt ?? draftPrompt(doc, branchId).text,
-  });
+  const room = options.room ?? null;
+  const people = room ?? doc;
+  const lines = room ? [readSystemLine(room), readSystemLine(doc)] : [readSystemLine(doc)];
+  const items = sessionContextItems(doc, room);
+  const input = {
+    systemLine: lines
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .join(CONTEXT_SEPARATOR),
+    items,
+    ownerName: (uid: string) => contextOwnerName(people, uid),
+    history: historyEntries(doc, options.historyBefore),
+    prompt: options.prompt ?? draftPrompt(doc).text,
+  };
+  if (options.contextWindow === undefined) return assemble(input);
+  // everything but the history, then the room left for it
+  const bare = assemble({ ...input, history: [] });
+  const fixed = bare.messages.reduce((n, m) => n + m.content.length, 0);
+  const messages = bare.messages.length + input.history.length * 2;
+  const space =
+    (promptBudget(options.contextWindow) - messageOverhead(messages)) * FIT_CHARS_PER_TOKEN - fixed;
+  const fit = fitHistory(input.history, Math.max(0, space));
+  const out = assemble({ ...input, history: fit.entries });
+  return { ...out, fitted: { shortened: fit.shortened, left: fit.left } };
 }

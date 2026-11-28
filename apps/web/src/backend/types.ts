@@ -13,7 +13,27 @@ export interface RoomInfo {
   name: string;
   hostUid: string;
   locked: boolean;
+  /** goes up whenever a session or its members change (0 = no sessions on this backend yet) */
+  sessionsRev: number;
 }
+
+/** A session of a room: its own conversation and members (private to them and the host). */
+export interface SessionInfo {
+  id: string;
+  roomId: string;
+  name: string;
+  /** the room's first session; new people are added to it */
+  isDefault: boolean;
+  /** member ids, in the order the host placed them */
+  members: string[];
+  createdAt: string;
+}
+
+export type SessionsResult =
+  { ok: true; rev: number; sessions: SessionInfo[] } | { ok: false; reason: ActionFailure };
+
+export type SessionResult =
+  { ok: true; session: SessionInfo } | { ok: false; reason: ActionFailure };
 
 export type AccessFailure =
   | 'not-found'
@@ -32,7 +52,14 @@ export type JoinResult =
   | { ok: false; reason: AccessFailure; name?: string };
 
 export type ActionFailure =
-  'not-host' | 'not-member' | 'removed' | 'too-large' | 'offline' | 'unavailable';
+  | 'not-host'
+  | 'not-member'
+  | 'removed'
+  | 'too-large'
+  | 'too-many'
+  | 'invalid'
+  | 'offline'
+  | 'unavailable';
 
 export type ActionResult = { ok: true } | { ok: false; reason: ActionFailure };
 
@@ -62,6 +89,24 @@ export interface RoomBackend {
   saveSnapshot(roomId: string, state: Uint8Array): Promise<ActionResult>;
   /** the room's live channel */
   transport(room: RoomInfo): Transport;
+
+  /** the sessions this person may open (the host: all of them) */
+  listSessions(roomId: string): Promise<SessionsResult>;
+  /** host only; 1-8 members, each with a seat in the room */
+  createSession(roomId: string, name: string, members: string[]): Promise<SessionResult>;
+  /** host only; a field left out stays as it is */
+  updateSession(
+    sessionId: string,
+    patch: { name?: string; members?: string[] },
+  ): Promise<SessionResult>;
+  /** host only; the default session cannot be deleted */
+  deleteSession(sessionId: string): Promise<ActionResult>;
+  loadSessionSnapshot(sessionId: string): Promise<Uint8Array | null>;
+  saveSessionSnapshot(sessionId: string, state: Uint8Array): Promise<ActionResult>;
+  /** the last copy of a session while the page closes (a request that outlives the page) */
+  saveSessionOnLeave(sessionId: string, state: Uint8Array): void;
+  /** a session's live channel (members and the host only) */
+  sessionTransport(room: RoomInfo, sessionId: string): Transport;
 }
 
 /**
@@ -86,6 +131,8 @@ const ACTIONS: Record<string, ActionFailure> = {
   not_member: 'not-member',
   removed: 'removed',
   too_large: 'too-large',
+  too_many: 'too-many',
+  invalid: 'invalid',
 };
 
 /** Reads a room from a server answer (anything malformed is refused). */
@@ -101,7 +148,45 @@ export function readRoomInfo(value: unknown): RoomInfo | null {
     name: typeof v.name === 'string' ? v.name.slice(0, 60) : '',
     hostUid: v.host_uid.slice(0, 64),
     locked: v.locked === true,
+    sessionsRev: typeof v.sessions_rev === 'number' ? v.sessions_rev : 0,
   };
+}
+
+/** One session from a server answer (anything malformed is refused). */
+export function readSessionInfo(value: unknown): SessionInfo | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const v = value as Record<string, unknown>;
+  if (typeof v.id !== 'string' || typeof v.name !== 'string' || !Array.isArray(v.members)) {
+    return null;
+  }
+  return {
+    id: v.id.slice(0, 64),
+    roomId: typeof v.room_id === 'string' ? v.room_id.slice(0, 64) : '',
+    name: v.name.slice(0, 40),
+    isDefault: v.is_default === true,
+    members: v.members.filter((m): m is string => typeof m === 'string').slice(0, 64),
+    createdAt: typeof v.created_at === 'string' ? v.created_at : '',
+  };
+}
+
+export function readSessionsResult(value: unknown): SessionsResult {
+  if (typeof value !== 'object' || value === null) return { ok: false, reason: 'unavailable' };
+  const v = value as Record<string, unknown>;
+  if (v.ok !== true) return { ok: false, reason: ACTIONS[String(v.reason)] ?? 'unavailable' };
+  const list = Array.isArray(v.sessions) ? v.sessions : [];
+  return {
+    ok: true,
+    rev: typeof v.rev === 'number' ? v.rev : 0,
+    sessions: list.map(readSessionInfo).filter((x): x is SessionInfo => x !== null),
+  };
+}
+
+export function readSessionResult(value: unknown): SessionResult {
+  if (typeof value !== 'object' || value === null) return { ok: false, reason: 'unavailable' };
+  const v = value as Record<string, unknown>;
+  if (v.ok !== true) return { ok: false, reason: ACTIONS[String(v.reason)] ?? 'unavailable' };
+  const session = readSessionInfo(v.session);
+  return session ? { ok: true, session } : { ok: false, reason: 'unavailable' };
 }
 
 /** The server's JSON answer to create_room / join_room. */
@@ -111,7 +196,7 @@ export function readJoinResult(value: unknown): JoinResult {
   if (v.ok === true) {
     const room = readRoomInfo(v.room);
     if (!room || typeof v.uid !== 'string') return { ok: false, reason: 'unavailable' };
-    const slot = typeof v.slot === 'number' ? Math.min(8, Math.max(1, Math.round(v.slot))) : 1;
+    const slot = typeof v.slot === 'number' ? Math.min(16, Math.max(1, Math.round(v.slot))) : 1;
     return { ok: true, room, uid: v.uid.slice(0, 64), slot };
   }
   const reason = FAILURES[String(v.reason)] ?? 'unavailable';

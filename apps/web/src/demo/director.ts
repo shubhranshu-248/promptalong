@@ -4,7 +4,6 @@ import { RoomSession } from '../room/session';
 import { DemoBot, pause } from './bot';
 import {
   BOTS,
-  BRANCH_NAME,
   CONTEXT,
   DEMO_CODE,
   DEMO_ROOM_NAME,
@@ -44,6 +43,8 @@ const LETTER_MS = 45;
 export class DemoDirector {
   readonly visitor: RoomSession;
   private readonly hub: MemoryHub;
+  /** the demo's one session has its own in-page channel, as a session of a real room does */
+  private readonly sessionHub = new MemoryHub();
   private readonly options: DemoOptions;
   private bots: Record<BotId, DemoBot> | null = null;
   private readonly ctrl = new AbortController();
@@ -65,6 +66,7 @@ export class DemoDirector {
       pid: `demo-you-${randomId()}`,
       name: options.visitorName,
       transport: this.hub.createTransport(),
+      sessionTransport: () => this.sessionHub.createTransport(),
       joinedAt: Date.now() + 60_000,
       slot: 4,
     });
@@ -90,6 +92,8 @@ export class DemoDirector {
         pid: BOTS[id].pid,
         name: BOTS[id].name,
         transport: this.hub.createTransport(),
+        sessionTransport: () => this.sessionHub.createTransport(),
+        prepare: false,
       });
       s.start();
       return new DemoBot(s, timing);
@@ -100,6 +104,7 @@ export class DemoDirector {
     const meera = join('meera');
     await gap();
     const kabir = join('kabir');
+    await Promise.all([aarav, meera, kabir].map((b) => b.room.sessionsReady()));
     this.bots = { aarav, meera, kabir };
     return this.bots;
   }
@@ -122,7 +127,7 @@ export class DemoDirector {
     if (this.phase === 'stopped') return;
     this.ctrl.abort();
     this.setPhase('stopped');
-    for (const bot of Object.values(this.bots ?? {})) bot.session.stop();
+    for (const bot of Object.values(this.bots ?? {})) bot.room.stop();
     this.visitor.stop();
   }
 
@@ -165,21 +170,14 @@ export class DemoDirector {
     await wait(900);
     await meera.sendAndWait(signal);
 
-    // Turn 2: Kabir adds the survey and starts a branch; Meera and Aarav write the next prompt.
+    // Turn 2: Kabir adds the survey; Meera and Aarav write the next prompt.
     await wait(700);
     kabir.addContext(CONTEXT.survey);
-    await Promise.all([
-      (async () => {
-        await wait(400);
-        await meera.type(T2_MEERA, 'end', signal);
-        await aarav.sees(T2_MEERA, signal);
-        await aarav.type(T2_AARAV, 'end', signal);
-      })(),
-      (async () => {
-        await wait(2500);
-        kabir.branch(BRANCH_NAME, 1);
-      })(),
-    ]);
+    await wait(400);
+    await meera.type(T2_MEERA, 'end', signal);
+    await aarav.sees(T2_MEERA, signal);
+    await aarav.type(T2_AARAV, 'end', signal);
+    await meera.sees(T2_AARAV, signal);
     await wait(700);
     const t2 = await meera.send(signal);
 

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Licence allow-list for every installed third-party package (ADR-001).
-// Runtime packages (shipped to the browser): MIT, ISC, BSD-2/3, Apache-2.0, 0BSD, OFL-1.1 (fonts).
+// Runtime packages (shipped to the browser): MIT, ISC, BSD-2/3, Apache-2.0, 0BSD, Zlib, OFL-1.1
+// (fonts). Zlib: pako, used by pdf-lib for the PDF export (ADR-011) - a short permissive licence.
 // Dev-only packages may also be MPL-2.0 (axe-core) and a few permissive extras.
 import { execFileSync } from 'node:child_process';
 
@@ -11,6 +12,7 @@ const RUNTIME_OK = new Set([
   'BSD-3-Clause',
   'Apache-2.0',
   '0BSD',
+  'Zlib',
   'OFL-1.1',
 ]);
 const DEV_ONLY_OK = new Set([

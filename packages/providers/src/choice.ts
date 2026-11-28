@@ -54,9 +54,9 @@ export interface ModelLimits {
   encoding?: NonNullable<ModelInfo['encoding']>;
 }
 
-export const DEFAULT_CONTEXT_WINDOW = 8192;
+export const DEFAULT_CONTEXT_WINDOW = 131_072;
 
-/** The context window and token counting of the room's model. Unknown models get 8,192. */
+/** The context window and token counting of the room's model. Unknown models get 131,072. */
 export function modelLimits(choice: RoomModelChoice): ModelLimits {
   const models =
     choice.kind === 'byok' ? findEndpoint(choice.endpoint)?.models : CATALOG[choice.kind];

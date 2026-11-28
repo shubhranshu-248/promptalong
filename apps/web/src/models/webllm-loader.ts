@@ -1,4 +1,9 @@
-import type { LoadProgress, WebLlmEngine, WebLlmLoader } from '@promptalong/providers';
+import {
+  WEBLLM_MODELS,
+  type LoadProgress,
+  type WebLlmEngine,
+  type WebLlmLoader,
+} from '@promptalong/providers';
 
 interface GpuNavigator {
   // not in every browser (and not in this project's DOM types)
@@ -37,11 +42,18 @@ export const webLlmLoader: WebLlmLoader = {
     };
     signal.addEventListener('abort', stop, { once: true });
     try {
-      const engine = await lib.CreateWebWorkerMLCEngine(worker, model, {
-        initProgressCallback: (r) => {
-          onProgress({ progress: r.progress, text: r.text });
+      // the engine starts with a 4,096-token window; ask for the window the catalog lists
+      const window = WEBLLM_MODELS.find((m) => m.id === model)?.contextWindow;
+      const engine = await lib.CreateWebWorkerMLCEngine(
+        worker,
+        model,
+        {
+          initProgressCallback: (r) => {
+            onProgress({ progress: r.progress, text: r.text });
+          },
         },
-      });
+        window ? { context_window_size: window } : undefined,
+      );
       if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
       // The engine's OpenAI-style API matches WebLlmEngine; its request type is wider than ours.
       return engine as unknown as WebLlmEngine;

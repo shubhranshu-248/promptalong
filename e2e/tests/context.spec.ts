@@ -27,7 +27,21 @@ function panel(p: Person) {
   return p.page.getByTestId('context-panel');
 }
 
-async function addNote(p: Person, title: string, text: string): Promise<void> {
+/** The context drawer opens from the composer's Context button. */
+async function openPanel(p: Person): Promise<void> {
+  if (await panel(p).isVisible()) return;
+  await p.page.getByTestId('context-button').click();
+  await expect(panel(p)).toBeVisible();
+}
+
+async function addNote(
+  p: Person,
+  title: string,
+  text: string,
+  scope: 'session' | 'room' = 'session',
+): Promise<void> {
+  await openPanel(p);
+  await panel(p).getByTestId(`context-scope-${scope}`).click();
   await panel(p).getByRole('button', { name: 'Add note' }).click();
   const dialog = p.page.getByRole('dialog', { name: 'Add a note' });
   await dialog.getByTestId('item-title').fill(title);
@@ -37,6 +51,7 @@ async function addNote(p: Person, title: string, text: string): Promise<void> {
 }
 
 async function uploadText(p: Person, name: string, content: string | Buffer): Promise<void> {
+  await openPanel(p);
   await panel(p)
     .getByTestId('context-file')
     .setInputFiles({
@@ -52,6 +67,7 @@ function item(p: Person, title: string) {
 
 /** Opens Payload > JSON and returns the exact string shown, with its hash. */
 async function shownPayload(p: Person): Promise<{ body: string; hash: string }> {
+  await openPanel(p);
   await panel(p).getByTestId('ctx-tab-payload').click();
   await panel(p).getByTestId('payload-json-button').click();
   const pre = panel(p).getByTestId('payload-json');
@@ -121,17 +137,17 @@ test.describe('context panel', () => {
       await item(meera, 'Old pitch draft').getByRole('checkbox').uncheck();
       await expect(item(aarav, 'Old pitch draft')).toContainText('excluded by Meera');
       await panel(aarav).getByTestId('ctx-tab-payload').click();
-      await panel(aarav).getByRole('button', { name: 'Add room line' }).click();
+      await panel(aarav).getByRole('button', { name: 'Add room instructions' }).click();
       await aarav.page
         .getByTestId('room-line-input')
         .fill('You are helping a team prepare a pitch.');
       await aarav.page.getByTestId('room-line-save').click();
 
       await aarav.page.getByTestId('model-button').click();
-      const dialog = aarav.page.getByRole('dialog', { name: 'Model for this room' });
+      const dialog = aarav.page.getByRole('dialog', { name: 'Model for this session' });
       await dialog.getByText('Your own key', { exact: true }).click();
       await dialog.getByTestId('key-input').fill('sk-test-PA-context-1');
-      await dialog.getByRole('button', { name: 'Use for this room' }).click();
+      await dialog.getByRole('button', { name: 'Use for this session' }).click();
       await expect(dialog).toBeHidden();
 
       await write(meera, 'Turn this into three slide titles — "short" ones.');
@@ -159,7 +175,7 @@ test.describe('context panel', () => {
       for (const p of people) {
         await panel(p).getByTestId('ctx-tab-payload').click();
         await expect.poll(() => lastSentHash(p)).toBe(before.hash); // === the turn's requestHash
-        await expect(p.page.getByTestId('turn-context')).toHaveText('· 2 context items');
+        await expect(p.page.getByTestId('turn-context')).toHaveText(', with 2 context items');
       }
     } finally {
       await closeAll(people);
@@ -178,9 +194,7 @@ test.describe('context panel', () => {
       });
       await createRoom(aarav);
       await write(aarav, '/short Make it 2 minutes');
-      await expect(aarav.page.getByTestId('composer-tokens')).toHaveText(
-        /^about \d+ \/ 7,168 tokens$/u,
-      );
+      await expect(aarav.page.getByTestId('composer-tokens')).toHaveText(/^~\d+ \/ 1M$/u);
       expect(tokenizer).toEqual([]);
       await addNote(aarav, 'Survey numbers', '61 of 80 students lost something this sem.');
       await expect.poll(() => tokenizer.length).toBe(1);
@@ -221,6 +235,7 @@ test.describe('context panel', () => {
       await joinRoom(meera, code);
       await joinRoom(kabir, code);
       await addNote(aarav, 'App features', 'live map, photo + pin, match alerts '.repeat(20));
+      for (const p of people) await openPanel(p);
       for (const p of people) await expect(item(p, 'App features')).toBeVisible();
       const withItem = await panel(kabir).getByTestId('budget-numbers').innerText();
 
@@ -280,12 +295,17 @@ test.describe('context panel', () => {
       await expect.poll(() => promptText(meera)).toContain('Summarise');
       for (const p of people) await expect(p.page.getByTestId('send-button')).toBeEnabled();
 
-      // about 12,000 tokens: more than the demo model's 7,168
-      await uploadText(
-        meera,
-        'all-notes.md',
-        'Lost and found on campus, week by week. '.repeat(1500),
-      );
+      // five files of ~880 KB, about 1.1 million tokens: more than the demo model's 1,040,384
+      // (and far more than one realtime message can carry: each travels in parts)
+      for (let n = 1; n <= 5; n++) {
+        await uploadText(
+          meera,
+          n === 5 ? 'all-notes.md' : `notes-${String(n)}.md`,
+          `Week ${String(n)}. Lost and found on campus, week by week. `.repeat(18_000),
+        );
+      }
+      for (const p of people) await openPanel(p);
+      for (const p of people) await expect(panel(p).getByTestId('context-item')).toHaveCount(5);
       for (const p of people) {
         await expect(panel(p).getByTestId('budget')).toHaveAttribute('data-over', 'true');
         await expect(panel(p).getByTestId('budget')).toContainText(
@@ -308,21 +328,43 @@ test.describe('context panel', () => {
       await expect(item(meera, 'all-notes.md')).toContainText('excluded by Aarav');
       await aarav.page.getByTestId('send-button').click();
       await waitDone(people, 1);
-      await expect(aarav.page.getByTestId('turn-context')).toHaveCount(0);
+      await expect(aarav.page.getByTestId('turn-context')).toHaveText(', with 4 context items');
     } finally {
       await closeAll(people);
     }
   });
 
-  test('only .txt and .md text up to 200 KB can be added', async ({ browser }) => {
+  test('a 900 KB file reaches the other person: big changes travel in parts', async ({
+    browser,
+  }) => {
+    const aarav = await person(browser, 'Aarav');
+    const meera = await person(browser, 'Meera');
+    try {
+      const code = await createRoom(aarav);
+      await joinRoom(meera, code);
+      await expect(meera.page.getByTestId('people-list').locator('li')).toHaveCount(2);
+      const line = 'The judges score problem, solution, demo and pitch. ';
+      const text = line.repeat(Math.floor((900 * 1024) / line.length));
+      await uploadText(aarav, 'notes.txt', text);
+      await expect(item(aarav, 'notes.txt')).toBeVisible();
+      await openPanel(meera);
+      // one realtime message may be at most 256 KB on the free plan: this one needs several
+      await expect(item(meera, 'notes.txt')).toBeVisible({ timeout: 20_000 });
+      await expect(item(meera, 'notes.txt')).toContainText('Aarav · file');
+    } finally {
+      await closeAll([aarav, meera]);
+    }
+  });
+
+  test('only .txt and .md text up to 1 MB can be added', async ({ browser }) => {
     const aarav = await person(browser, 'Aarav');
     try {
       await createRoom(aarav);
       const problem = panel(aarav).getByTestId('context-problem');
       await uploadText(aarav, 'slides.pdf', '%PDF-1.7');
       await expect(problem).toContainText('"slides.pdf" is not a .txt or .md file');
-      await uploadText(aarav, 'huge.txt', 'a'.repeat(200 * 1024 + 64));
-      await expect(problem).toContainText('"huge.txt" is larger than 200 KB');
+      await uploadText(aarav, 'huge.txt', 'a'.repeat(1024 * 1024 + 64));
+      await expect(problem).toContainText('"huge.txt" is larger than 1 MB');
       await uploadText(aarav, 'photo.txt', Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a]));
       await expect(problem).toContainText('"photo.txt" is not UTF-8 text');
       await expect(panel(aarav).getByTestId('context-item')).toHaveCount(0);
@@ -344,7 +386,7 @@ test.describe('context panel', () => {
       await item(aarav, 'criteria.md')
         .getByRole('button', { name: 'More for criteria.md' })
         .click();
-      await aarav.page.getByRole('menuitem', { name: 'Remove from the room…' }).click();
+      await aarav.page.getByRole('menuitem', { name: 'Remove from this session…' }).click();
       await aarav.page.getByTestId('item-remove-confirm').click();
       await expect(panel(aarav).getByTestId('context-item')).toHaveCount(0);
     } finally {
@@ -363,7 +405,10 @@ test.describe('context panel', () => {
       const code = await createRoom(aarav);
       await joinRoom(meera, code);
       await joinRoom(kabir, code);
-      await addNote(meera, 'Survey numbers', '61 of 80 students');
+      // a note for the whole room: every session gets it
+      await addNote(meera, 'Survey numbers', '61 of 80 students', 'room');
+      await expect(panel(meera).getByTestId('context-room')).toContainText('Survey numbers');
+      await openPanel(kabir);
       await expect(item(kabir, 'Survey numbers')).toContainText('Meera · note');
 
       await item(kabir, 'Survey numbers')
@@ -378,6 +423,7 @@ test.describe('context panel', () => {
       await view.getByRole('button', { name: 'Close' }).last().click();
 
       // the host can remove anyone's item
+      await openPanel(aarav);
       await item(aarav, 'Survey numbers')
         .getByRole('button', { name: 'More for Survey numbers' })
         .click();
@@ -389,74 +435,33 @@ test.describe('context panel', () => {
     }
   });
 
-  test('fork room takes the context along, with its owners', async ({ browser }) => {
-    const aarav = await person(browser, 'Aarav');
-    const meera = await person(browser, 'Meera');
-    try {
-      const code = await createRoom(aarav);
-      await joinRoom(meera, code);
-      await addNote(meera, 'Survey numbers', '61 of 80 students');
-      await addNote(aarav, 'Old pitch draft', 'We help students find things.');
-      await item(meera, 'Old pitch draft').getByRole('checkbox').uncheck();
-      await write(aarav, '/short First turn');
-      await aarav.page.getByTestId('send-button').click();
-      await waitDone([aarav, meera], 1);
-
-      await aarav.page.getByTestId('panel-tree').click();
-      await aarav.page.getByRole('button', { name: 'Fork room' }).click();
-      const dialog = aarav.page.getByRole('dialog', { name: 'Fork this room' });
-      await dialog.getByLabel('New room name').fill('Pitch fork');
-      await dialog.getByRole('button', { name: 'Fork room' }).click();
-      await aarav.page.waitForURL(
-        (u) => /\/r\/[1-9A-Z]{6}$/u.test(u.pathname) && !u.pathname.endsWith(code),
-      );
-      // a new room opens its invite dialog once
-      const share = aarav.page.getByRole('dialog', { name: 'Invite your team' });
-      await expect(share).toBeVisible();
-      await share.getByRole('button', { name: 'Close' }).click();
-      await expect(share).toBeHidden();
-      await expect(aarav.page.getByTestId('room-title')).toHaveText('Pitch fork');
-
-      await expect(panel(aarav).getByTestId('context-item')).toHaveCount(2);
-      await expect(item(aarav, 'Survey numbers')).toContainText(`Meera (from room ${code}) · note`);
-      await expect(item(aarav, 'Survey numbers')).toHaveAttribute('data-included', 'true');
-      await expect(item(aarav, 'Old pitch draft')).toHaveAttribute('data-included', 'false');
-      await expect(aarav.page.getByTestId('turn-context')).toHaveText('· 1 context item');
-      await write(aarav, 'next');
-      const next = await shownPayload(aarav);
-      expect(next.body).toContain('[context: Survey numbers · Meera]\\n61 of 80 students');
-      // the old room keeps its own items
-      await expect(panel(meera).getByTestId('context-item')).toHaveCount(2);
-    } finally {
-      await closeAll([aarav, meera]);
-    }
-  });
-
-  test('wide view and the phone tab show the same panel', async ({ browser }) => {
+  test('the context drawer opens from the composer, on a laptop and on a phone', async ({
+    browser,
+  }) => {
     const aarav = await person(browser, 'Aarav');
     try {
       await createRoom(aarav);
+      await expect(panel(aarav)).toBeHidden();
       await addNote(aarav, 'App features', '- live map');
-      await panel(aarav).getByTestId('ctx-wide').click();
-      await expect(aarav.page).toHaveURL(/\?panel=context$/u);
-      const wide = aarav.page.getByTestId('context-wide');
-      await expect(wide.getByRole('heading', { name: 'Context' })).toBeVisible();
-      await expect(wide.getByTestId('context-item')).toHaveCount(1);
+      await expect(aarav.page.getByTestId('context-button')).toContainText('1');
+      await panel(aarav).getByTestId('ctx-tab-payload').click();
       await expect(panel(aarav).getByTestId('payload')).toBeVisible();
-      await panel(aarav).getByTestId('ctx-wide').click();
+      await panel(aarav).getByTestId('ctx-close').click();
+      await expect(panel(aarav)).toBeHidden();
       await expect(aarav.page.getByTestId('prompt-editor')).toBeVisible();
 
       await aarav.page.setViewportSize({ width: 390, height: 844 });
-      await expect(panel(aarav)).toBeHidden();
-      await aarav.page
-        .getByRole('navigation', { name: 'Room sections' })
-        .getByText('Context (1)')
-        .click();
+      // the sidebar was open beside the chat; on a phone it is a drawer, closed until asked for
+      await expect(aarav.page.getByTestId('sidebar')).toBeHidden();
+      await openPanel(aarav);
+      await panel(aarav).getByTestId('ctx-tab-context').click();
       await expect(item(aarav, 'App features')).toBeVisible();
       const overflow = await aarav.page.evaluate(
         () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
       );
       expect(overflow).toBeLessThanOrEqual(0);
+      await aarav.page.keyboard.press('Escape');
+      await expect(panel(aarav)).toBeHidden();
     } finally {
       await closeAll([aarav]);
     }
@@ -485,19 +490,12 @@ for (const scheme of ['light', 'dark'] as const) {
         await item(aarav, 'Old pitch draft').getByRole('checkbox').uncheck();
         await write(aarav, 'Three slide titles');
         await aarav.page.setViewportSize({ width: vp.width, height: vp.height });
-        if (vp.name === 'mobile') {
-          await aarav.page
-            .getByRole('navigation', { name: 'Room sections' })
-            .getByText(/^Context/u)
-            .click();
-        }
+        await openPanel(aarav);
+        await panel(aarav).getByTestId('ctx-tab-context').click();
         await expect(item(aarav, 'App features')).toBeVisible();
         expect(await axe(aarav.page)).toEqual([]);
         await panel(aarav).getByTestId('ctx-tab-payload').click();
         await expect(panel(aarav).getByTestId('seg-prompt')).toBeVisible();
-        expect(await axe(aarav.page)).toEqual([]);
-        await panel(aarav).getByTestId('ctx-tab-model').click();
-        await expect(panel(aarav).getByTestId('model-info')).toBeVisible();
         expect(await axe(aarav.page)).toEqual([]);
       } finally {
         await closeAll([aarav]);

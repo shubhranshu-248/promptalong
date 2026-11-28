@@ -14,38 +14,37 @@ const DemoRoom = lazy(() => import('./DemoRoom'));
  */
 function DemoShell() {
   return (
-    <div className="flex h-dvh flex-col" aria-busy="true">
-      <DemoBanner phase="playing" />
-      <header className="flex h-14 flex-none items-center gap-3 border-b border-border bg-surface px-4 max-md:gap-2 max-md:px-3">
-        <Link to="/" aria-label="PromptAlong home" className="flex-none">
-          <LogoMark size={28} dot="var(--c-text)" />
-        </Link>
-        <div className="min-w-0">
-          <h1 className="truncate font-display text-[17px] leading-tight font-semibold">
+    <div className="flex h-dvh overflow-hidden bg-bg" aria-busy="true">
+      <div className="w-[272px] flex-none border-r border-border bg-surface max-lg:hidden" />
+      <div className="flex min-w-0 flex-1 flex-col">
+        <DemoBanner phase="playing" />
+        <header className="flex h-14 flex-none items-center gap-1.5 px-3 max-md:px-2">
+          <Link
+            to="/"
+            aria-label="PromptAlong home"
+            className="grid size-9 place-items-center lg:hidden"
+          >
+            <LogoMark size={22} dot="var(--c-text)" />
+          </Link>
+          <h1 className="truncate px-1.5 font-display text-[16px] leading-tight font-semibold">
             {DEMO_ROOM_NAME}
           </h1>
-          <p className="text-xs text-text-muted md:hidden">Demo</p>
-        </div>
-      </header>
-      {/* the room's columns: people | prompt and answers | context (from 1024 px) */}
-      <div className="grid min-h-0 flex-1 max-md:grid-cols-1 md:grid-cols-[260px_1fr] lg:grid-cols-[260px_1fr_360px]">
-        <div className="border-r border-border bg-surface max-md:hidden" />
-        <main className="flex min-h-0 min-w-0 flex-col">
-          <div className="flex flex-1 items-center justify-center p-8 max-md:p-4">
-            <p className="max-w-[420px] text-center text-sm text-text-muted">
-              Write the prompt together below - every keystroke shows up on every screen. When
-              someone presses Send, the answer streams in here for everyone.
-            </p>
+        </header>
+        <main className="flex min-h-0 flex-1 flex-col">
+          <div className="flex-1 px-6 pt-6 max-md:px-4">
+            <div className="mx-auto flex max-w-[640px] flex-col items-center pt-[10vh] text-center max-md:pt-[6vh]">
+              <p className="text-[30px] font-semibold tracking-[-0.03em] max-md:text-[24px]">
+                What should we ask together?
+              </p>
+            </div>
           </div>
-          {/* the shared prompt box, the height it has once the room is drawn */}
-          <div className="flex h-[320px] flex-none flex-col border-t border-border bg-surface px-6 pt-3.5 pb-4 max-md:p-3 md:h-[325px] lg:h-[258px]">
-            <p className="mb-2 text-xs font-bold">Shared prompt</p>
-            <div className="min-h-0 flex-1 rounded-lg border border-border" />
+          {/* the composer, the height it has once the room is drawn */}
+          <div className="px-4 pt-3 pb-3 max-md:px-2.5">
+            <div className="mx-auto h-[106px] max-w-[760px] rounded-[22px] border border-border bg-surface shadow-md" />
+            <p className="mt-2 min-h-[1lh] text-xs">&nbsp;</p>
           </div>
         </main>
-        <div className="hidden border-l border-border bg-surface lg:block" />
       </div>
-      <div className="h-[60px] flex-none border-t border-border bg-surface md:hidden" />
       <p className="sr-only" role="status">
         Opening the demo room…
       </p>
